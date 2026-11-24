@@ -42,3 +42,15 @@ class AttendanceRankOut(BaseModel):
     name: str
     department: str
     count: int
+
+
+class EmployeeAttendanceOut(BaseModel):
+    id: str
+    name: str
+    department: str
+    college: str
+    organization: str
+    present_week: int
+    late_week: int
+    scan_count_week: int
+    last_scan_at: datetime | None

@@ -1,3 +1,4 @@
+import type { EmployeeAttendanceStats } from "@/data/admin-monitoring"
 import type {
   AttendanceRank,
   AttendanceRecord,
@@ -26,6 +27,18 @@ type AttendanceRankApi = {
   name: string
   department: string
   count: number
+}
+
+type EmployeeAttendanceApi = {
+  id: string
+  name: string
+  department: string
+  college: string
+  organization: string
+  present_week: number
+  late_week: number
+  scan_count_week: number
+  last_scan_at: string | null
 }
 
 export type AttendanceDateRange = {
@@ -330,7 +343,7 @@ export async function createAttendanceScan(
   if (!response.ok) {
     const fallback =
       response.status === 409
-        ? "That Time In/Out is already recorded."
+        ? "That Time In/Out is already recorded today."
         : response.status === 404
           ? `Unknown ID “${trimmed}”.`
           : "Could not record scan."
@@ -342,4 +355,39 @@ export async function createAttendanceScan(
 
   const row = (await response.json()) as AttendanceRecordApi
   return { ok: true, record: mapAttendanceRecord(row) }
+}
+
+function mapEmployeeAttendance(
+  row: EmployeeAttendanceApi
+): EmployeeAttendanceStats {
+  return {
+    id: row.id,
+    name: row.name,
+    department: row.department,
+    college: row.college,
+    organization: row.organization,
+    presentWeek: row.present_week,
+    lateWeek: row.late_week,
+    scanCountWeek: row.scan_count_week,
+    lastScanAt: row.last_scan_at,
+  }
+}
+
+export async function fetchAttendanceEmployees(
+  range: AttendanceDateRange = {}
+): Promise<EmployeeAttendanceStats[]> {
+  const response = await fetch(
+    `${API_URL}/attendance/employees${attendanceRangeQuery(range)}`,
+    { headers: authHeaders() }
+  )
+  if (!response.ok) {
+    throw new Error(
+      await readErrorMessage(
+        response,
+        `Failed to load employees (${response.status})`
+      )
+    )
+  }
+  const rows = (await response.json()) as EmployeeAttendanceApi[]
+  return rows.map(mapEmployeeAttendance)
 }
