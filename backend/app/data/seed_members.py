@@ -1,0 +1,117 @@
+"""Deterministic roster mirroring the frontend members generator (48 members)."""
+
+DEPARTMENTS = ["Worship", "Youth", "Media", "Ushering", "Children", "Tech"]
+COLLEGES = ["CCIS", "COFES", "CED", "CMNS", "CEGS"]
+ORGANIZATIONS = [
+    "LCO Core",
+    "Youth Fellowship",
+    "Media Team",
+    "Usher Corps",
+    "Children Ministry",
+    "Tech Crew",
+]
+FIRST_NAMES = [
+    "Ana",
+    "Ben",
+    "Carla",
+    "Diego",
+    "Elena",
+    "Felix",
+    "Gina",
+    "Hiro",
+    "Isabel",
+    "Jonas",
+    "Kai",
+    "Lara",
+    "Marco",
+    "Nina",
+    "Omar",
+    "Paula",
+    "Quinn",
+    "Rafael",
+    "Sofia",
+    "Theo",
+    "Uma",
+    "Victor",
+    "Wendy",
+    "Xander",
+    "Yana",
+    "Zeke",
+    "Alya",
+    "Bruno",
+    "Celine",
+    "Dante",
+    "Eliza",
+    "Farah",
+    "Gio",
+    "Hana",
+    "Ivan",
+    "Jade",
+    "Ken",
+    "Lina",
+    "Miguel",
+    "Nora",
+    "Owen",
+    "Pia",
+    "Rico",
+    "Sam",
+    "Tessa",
+    "Uri",
+    "Vera",
+    "Will",
+]
+LAST_NAMES = [
+    "Reyes",
+    "Santos",
+    "Mendoza",
+    "Cruz",
+    "Garcia",
+    "Ramos",
+    "Lopez",
+    "Tanaka",
+    "Navarro",
+    "Lim",
+    "Domingo",
+    "Villanueva",
+    "Dela Cruz",
+    "Ortega",
+    "Bautista",
+    "Castillo",
+    "Fernandez",
+    "Gonzales",
+    "Hernandez",
+    "Ibarra",
+    "Jimenez",
+    "Kwan",
+    "Luna",
+    "Morales",
+    "Nunez",
+    "Ocampo",
+    "Pascual",
+    "Quijano",
+    "Rivera",
+    "Salazar",
+    "Torres",
+    "Urbano",
+    "Valdez",
+    "Wong",
+    "Yap",
+    "Zamora",
+]
+
+
+def build_seed_members(count: int = 48) -> list[dict[str, str]]:
+    members: list[dict[str, str]] = []
+    for index in range(count):
+        first = FIRST_NAMES[index % len(FIRST_NAMES)]
+        last = LAST_NAMES[(index * 3) % len(LAST_NAMES)]
+        members.append(
+            {
+                "id": f"LCO-{1001 + index}",
+                "name": f"{first} {last}",
+                "department": DEPARTMENTS[index % len(DEPARTMENTS)],
+                "college": COLLEGES[index % len(COLLEGES)],
+                "organization": ORGANIZATIONS[index % len(ORGANIZATIONS)],
+            }
+        )
+    return members

@@ -1,0 +1,44 @@
+services:
+  db:
+    image: postgres:16
+    container_name: lco-attendance-db
+    restart: unless-stopped
+    # Snap Docker's published-port proxy often drops Postgres connections on
+    # localhost; host networking avoids that for local development.
+    network_mode: host
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-lco}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-lco_secret}
+      POSTGRES_DB: ${POSTGRES_DB:-lco_attendance}
+    command: ["-c", "port=5434"]
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-lco} -d ${POSTGRES_DB:-lco_attendance} -p 5434",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: lco-attendance-backend
+    restart: unless-stopped
+    network_mode: host
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://lco:lco_secret@127.0.0.1:5434/lco_attendance}
+      APP_ENV: ${APP_ENV:-development}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173,null}
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
