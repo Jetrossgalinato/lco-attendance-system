@@ -4,6 +4,7 @@ export type Member = {
   department: string
   college: string
   organization: string
+  isActive?: boolean
 }
 
 const DEPARTMENTS = [
@@ -25,6 +26,8 @@ const ORGANIZATIONS = [
   "Children Ministry",
   "Tech Crew",
 ] as const
+
+export const MEMBER_DEPARTMENTS = [...DEPARTMENTS]
 
 const FIRST_NAMES = [
   "Ana",

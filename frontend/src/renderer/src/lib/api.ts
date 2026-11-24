@@ -7,6 +7,28 @@ import type {
   AttendanceType,
 } from "@/data/attendance"
 import type { AuthSession } from "@/data/auth"
+import type { Member } from "@/data/members"
+
+export type ManagedMember = Member & {
+  isActive: boolean
+  createdAt: string
+}
+
+export type MemberWritePayload = {
+  id?: string
+  name: string
+  department: string
+  college: string
+  organization: string
+}
+
+export type MemberUpdatePayload = {
+  name?: string
+  department?: string
+  college?: string
+  organization?: string
+  is_active?: boolean
+}
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000"
 const TOKEN_KEY = "lco-access-token"
@@ -390,4 +412,113 @@ export async function fetchAttendanceEmployees(
   }
   const rows = (await response.json()) as EmployeeAttendanceApi[]
   return rows.map(mapEmployeeAttendance)
+}
+
+type MemberApi = {
+  id: string
+  name: string
+  department: string
+  college: string
+  organization: string
+  is_active: boolean
+  created_at: string
+}
+
+function mapManagedMember(row: MemberApi): ManagedMember {
+  return {
+    id: row.id,
+    name: row.name,
+    department: row.department,
+    college: row.college,
+    organization: row.organization,
+    isActive: row.is_active,
+    createdAt: row.created_at,
+  }
+}
+
+export async function fetchMembers(
+  active: "all" | "true" | "false" = "all"
+): Promise<ManagedMember[]> {
+  const params = new URLSearchParams({ active })
+  const response = await fetch(`${API_URL}/members?${params.toString()}`, {
+    headers: authHeaders(),
+  })
+  if (!response.ok) {
+    throw new Error(
+      await readErrorMessage(
+        response,
+        `Failed to load members (${response.status})`
+      )
+    )
+  }
+  const rows = (await response.json()) as MemberApi[]
+  return rows.map(mapManagedMember)
+}
+
+export async function fetchNextMemberId(): Promise<string> {
+  const response = await fetch(`${API_URL}/members/next-id`, {
+    headers: authHeaders(),
+  })
+  if (!response.ok) {
+    throw new Error(
+      await readErrorMessage(
+        response,
+        `Failed to load next member ID (${response.status})`
+      )
+    )
+  }
+  const body = (await response.json()) as { id: string }
+  return body.id
+}
+
+export async function createMember(
+  payload: MemberWritePayload
+): Promise<ManagedMember> {
+  const response = await fetch(`${API_URL}/members`, {
+    method: "POST",
+    headers: {
+      ...authHeaders({ "Content-Type": "application/json" }),
+    },
+    body: JSON.stringify({
+      id: payload.id?.trim() || undefined,
+      name: payload.name,
+      department: payload.department,
+      college: payload.college,
+      organization: payload.organization,
+    }),
+  })
+  if (!response.ok) {
+    throw new Error(
+      await readErrorMessage(
+        response,
+        `Failed to create member (${response.status})`
+      )
+    )
+  }
+  return mapManagedMember((await response.json()) as MemberApi)
+}
+
+export async function updateMember(
+  memberId: string,
+  payload: MemberUpdatePayload
+): Promise<ManagedMember> {
+  const response = await fetch(
+    `${API_URL}/members/${encodeURIComponent(memberId)}`,
+    {
+      method: "PATCH",
+      headers: {
+        ...authHeaders({ "Content-Type": "application/json" }),
+      },
+      body: JSON.stringify(payload),
+    }
+  )
+  if (!response.ok) {
+    throw new Error(
+      await readErrorMessage(
+        response,
+        `Failed to update member (${response.status})`
+      )
+    )
+  }
+  return mapManagedMember((await response.json()) as MemberApi)
 }

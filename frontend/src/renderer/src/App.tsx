@@ -8,6 +8,7 @@ import { AdminActivityLogsPage } from "@/pages/admin-activity-logs-page"
 import { AdminAttendanceMonitoringPage } from "@/pages/admin-attendance-monitoring-page"
 import { AdminBorrowingMonitoringPage } from "@/pages/admin-borrowing-monitoring-page"
 import { AdminDashboardPage } from "@/pages/admin-dashboard-page"
+import { AdminMembersPage } from "@/pages/admin-members-page"
 import { AttendancePage } from "@/pages/attendance-page"
 import { CalculatorPage } from "@/pages/calculator-page"
 import { LoginPage } from "@/pages/login-page"
@@ -116,6 +117,8 @@ export default function App() {
         adminContent = <AdminBorrowingMonitoringPage />
       } else if (adminPage === "activity") {
         adminContent = <AdminActivityLogsPage />
+      } else if (adminPage === "members") {
+        adminContent = <AdminMembersPage />
       }
 
       content = (
