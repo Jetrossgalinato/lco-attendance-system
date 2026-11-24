@@ -221,7 +221,7 @@ export function AdminMembersTable({
                         </Button>
                         <Button
                           type="button"
-                          variant="outline"
+                          variant={row.isActive ? "destructive" : "outline"}
                           size="sm"
                           className="cursor-pointer"
                           disabled={togglingId === row.id}
