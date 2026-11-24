@@ -5,6 +5,14 @@ import { AdminMembersTable } from "@/components/admin/admin-members-table"
 import { useAlert } from "@/components/alert-provider"
 import { Button } from "@/components/ui/button"
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import {
   createMember,
   fetchMembers,
   fetchNextMemberId,
@@ -24,6 +32,8 @@ export function AdminMembersPage() {
   const [nextId, setNextId] = useState("")
   const [submitting, setSubmitting] = useState(false)
   const [togglingId, setTogglingId] = useState<string | null>(null)
+  const [pendingDeactivate, setPendingDeactivate] =
+    useState<ManagedMember | null>(null)
 
   const loadMembers = useCallback(async () => {
     setLoading(true)
@@ -105,15 +115,24 @@ export function AdminMembersPage() {
     }
   }
 
-  async function handleToggleActive(member: ManagedMember) {
+  function handleToggleActive(member: ManagedMember) {
+    if (member.isActive) {
+      setPendingDeactivate(member)
+      return
+    }
+    void applyActiveChange(member, true)
+  }
+
+  async function applyActiveChange(member: ManagedMember, nextActive: boolean) {
     setTogglingId(member.id)
     try {
       const updated = await updateMember(member.id, {
-        is_active: !member.isActive,
+        is_active: nextActive,
       })
       setMembers((current) =>
         current.map((row) => (row.id === updated.id ? updated : row))
       )
+      setPendingDeactivate(null)
       showAlert({
         tone: "success",
         title: updated.isActive ? "Member reactivated" : "Member deactivated",
@@ -171,7 +190,7 @@ export function AdminMembersPage() {
           className="min-h-0 flex-1"
           onAdd={() => void openCreate()}
           onEdit={openEdit}
-          onToggleActive={(member) => void handleToggleActive(member)}
+          onToggleActive={handleToggleActive}
           togglingId={togglingId}
         />
       )}
@@ -185,6 +204,48 @@ export function AdminMembersPage() {
         onOpenChange={setSheetOpen}
         onSubmit={handleSubmit}
       />
+
+      <Dialog
+        open={pendingDeactivate !== null}
+        onOpenChange={(open) => {
+          if (!open && togglingId === null) setPendingDeactivate(null)
+        }}
+      >
+        <DialogContent showCloseButton={togglingId === null}>
+          <DialogHeader>
+            <DialogTitle>Deactivate member?</DialogTitle>
+            <DialogDescription>
+              {pendingDeactivate
+                ? `${pendingDeactivate.name} (${pendingDeactivate.id}) will no longer be able to scan for attendance. You can reactivate them later.`
+                : null}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              className="cursor-pointer"
+              disabled={togglingId !== null}
+              onClick={() => setPendingDeactivate(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              className="cursor-pointer"
+              disabled={togglingId !== null || pendingDeactivate === null}
+              onClick={() => {
+                if (pendingDeactivate) {
+                  void applyActiveChange(pendingDeactivate, false)
+                }
+              }}
+            >
+              {togglingId !== null ? "Deactivating…" : "Deactivate"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </main>
   )
 }
