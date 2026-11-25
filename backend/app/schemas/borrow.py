@@ -44,9 +44,15 @@ class BorrowRankOut(BaseModel):
     count: int
 
 
+class LoanStatusApi(str, Enum):
+    not_returned = "Not Returned"
+    returned = "Returned"
+
+
 class CurrentlyOutOut(BaseModel):
     member_id: str
     name: str
     college: str
     organization: str
     borrowed_at: datetime
+    status: LoanStatusApi

@@ -20,12 +20,15 @@ export type EmployeeAttendanceStats = Member & {
   lastScanAt: string | null
 }
 
+export type LoanMonitorStatus = "Not Returned" | "Returned"
+
 export type CurrentlyOutRow = {
   memberId: string
   name: string
   college: string
   organization: string
   borrowedAt: string
+  status: LoanMonitorStatus
 }
 
 function startOfLocalDay(date: Date): Date {
@@ -248,6 +251,7 @@ export function getCurrentlyOutRows(
       college: record.college,
       organization: record.organization,
       borrowedAt: record.scannedAt,
+      status: "Not Returned" as const,
     }))
     .sort(
       (a, b) =>

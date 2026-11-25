@@ -616,6 +616,7 @@ type CurrentlyOutApi = {
   college: string
   organization: string
   borrowed_at: string
+  status: "Not Returned" | "Returned"
 }
 
 function mapBorrowRecord(row: BorrowRecordApi): CalculatorRecord {
@@ -655,6 +656,7 @@ function mapCurrentlyOut(row: CurrentlyOutApi): CurrentlyOutRow {
     college: row.college,
     organization: row.organization,
     borrowedAt: row.borrowed_at,
+    status: row.status,
   }
 }
 

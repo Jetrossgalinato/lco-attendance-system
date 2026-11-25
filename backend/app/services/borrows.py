@@ -12,6 +12,7 @@ from app.schemas.borrow import (
     BorrowSummaryOut,
     BorrowTypeApi,
     CurrentlyOutOut,
+    LoanStatusApi,
 )
 from app.services.attendance import LOCAL_TZ, parse_day_bounds
 
@@ -167,18 +168,44 @@ def rank_borrows(
 
 
 def list_currently_out(db: Session) -> list[CurrentlyOutOut]:
-    latest = _latest_by_member(db)
+    """Latest loan state per member who has borrow history (out or returned)."""
+    rows = db.scalars(
+        select(BorrowRecord)
+        .options(joinedload(BorrowRecord.member))
+        .order_by(BorrowRecord.scanned_at.desc())
+    ).unique().all()
+
+    by_member: dict[str, list[BorrowRecord]] = {}
+    for row in rows:
+        by_member.setdefault(row.member_id, []).append(row)
+
     out_rows: list[CurrentlyOutOut] = []
-    for member_id, latest_event in latest.items():
-        if latest_event.type != BorrowType.borrow:
-            continue
+    for member_id, member_rows in by_member.items():
+        # member_rows already newest-first
+        latest_event = member_rows[0]
+        if latest_event.type == BorrowType.borrow:
+            status = LoanStatusApi.not_returned
+            borrowed_at = latest_event.scanned_at
+        else:
+            status = LoanStatusApi.returned
+            prior_borrow = next(
+                (r for r in member_rows if r.type == BorrowType.borrow),
+                None,
+            )
+            borrowed_at = (
+                prior_borrow.scanned_at
+                if prior_borrow is not None
+                else latest_event.scanned_at
+            )
+
         out_rows.append(
             CurrentlyOutOut(
                 member_id=member_id,
                 name=latest_event.member.name,
                 college=latest_event.member.college,
                 organization=latest_event.member.organization,
-                borrowed_at=latest_event.scanned_at,
+                borrowed_at=borrowed_at,
+                status=status,
             )
         )
     return sorted(out_rows, key=lambda row: row.borrowed_at, reverse=True)

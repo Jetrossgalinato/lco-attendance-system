@@ -17,6 +17,7 @@ import {
   formatRelativeDuration,
   MEMBER_COLLEGES,
   type CurrentlyOutRow,
+  type LoanMonitorStatus,
 } from "@/data/admin-monitoring"
 import { cn } from "@/lib/utils"
 
@@ -33,6 +34,9 @@ export function AdminCurrentlyOutTable({
 }: AdminCurrentlyOutTableProps) {
   const [search, setSearch] = useState("")
   const [college, setCollege] = useState("all")
+  const [statusFilter, setStatusFilter] = useState<"all" | LoanMonitorStatus>(
+    "all"
+  )
   const [page, setPage] = useState(1)
 
   const filteredRows = useMemo(() => {
@@ -40,6 +44,7 @@ export function AdminCurrentlyOutTable({
 
     return rows.filter((row) => {
       if (college !== "all" && row.college !== college) return false
+      if (statusFilter !== "all" && row.status !== statusFilter) return false
       if (!query) return true
       return (
         row.name.toLowerCase().includes(query) ||
@@ -47,13 +52,13 @@ export function AdminCurrentlyOutTable({
         row.organization.toLowerCase().includes(query)
       )
     })
-  }, [college, rows, search])
+  }, [college, rows, search, statusFilter])
 
   const totalPages = Math.max(1, Math.ceil(filteredRows.length / PAGE_SIZE))
 
   useEffect(() => {
     setPage(1)
-  }, [search, college, rows.length])
+  }, [search, college, statusFilter, rows.length])
 
   useEffect(() => {
     if (page > totalPages) setPage(totalPages)
@@ -66,7 +71,7 @@ export function AdminCurrentlyOutTable({
 
   const rangeLabel =
     filteredRows.length === 0
-      ? "0 out"
+      ? "0 loans"
       : `${(page - 1) * PAGE_SIZE + 1}–${Math.min(page * PAGE_SIZE, filteredRows.length)} of ${filteredRows.length}`
 
   return (
@@ -75,7 +80,7 @@ export function AdminCurrentlyOutTable({
     >
       <div className="flex shrink-0 flex-col gap-3 border-b border-border/80 px-5 py-4 lg:flex-row lg:items-end lg:justify-between">
         <div className="space-y-1">
-          <h2 className="text-lg font-bold tracking-[-0.03em]">Currently out</h2>
+          <h2 className="text-lg font-bold tracking-[-0.03em]">Loans</h2>
           <p className="text-xs font-semibold tracking-[0.08em] text-muted-foreground uppercase">
             {rangeLabel}
           </p>
@@ -110,12 +115,30 @@ export function AdminCurrentlyOutTable({
               ))}
             </MonitoringSelect>
           </label>
+          <label className="w-fit space-y-1">
+            <span className="block text-[11px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
+              Status
+            </span>
+            <MonitoringSelect
+              value={statusFilter}
+              onChange={(event) =>
+                setStatusFilter(
+                  event.target.value as "all" | LoanMonitorStatus
+                )
+              }
+              className="min-w-[9.5rem]"
+            >
+              <option value="all">All</option>
+              <option value="Not Returned">Not Returned</option>
+              <option value="Returned">Returned</option>
+            </MonitoringSelect>
+          </label>
         </div>
       </div>
 
       {filteredRows.length === 0 ? (
         <p className="flex flex-1 items-center px-5 py-10 text-sm text-muted-foreground">
-          No calculators currently out for these filters.
+          No loans match these filters.
         </p>
       ) : (
         <>
@@ -129,6 +152,7 @@ export function AdminCurrentlyOutTable({
                   <TableHead>Organization</TableHead>
                   <TableHead>Borrowed at</TableHead>
                   <TableHead>Duration</TableHead>
+                  <TableHead>Status</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -145,6 +169,18 @@ export function AdminCurrentlyOutTable({
                     </TableCell>
                     <TableCell className="tabular-nums text-muted-foreground">
                       {formatRelativeDuration(row.borrowedAt)}
+                    </TableCell>
+                    <TableCell>
+                      <span
+                        className={cn(
+                          "surface-chip inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold tracking-wide uppercase",
+                          row.status === "Returned"
+                            ? "bg-lime/40 text-foreground"
+                            : "bg-destructive/10 text-destructive"
+                        )}
+                      >
+                        {row.status}
+                      </span>
                     </TableCell>
                   </TableRow>
                 ))}
