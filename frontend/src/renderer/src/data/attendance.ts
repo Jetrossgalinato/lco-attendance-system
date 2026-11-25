@@ -44,3 +44,18 @@ export function toDateInputValue(date: Date = new Date()): string {
   const day = String(date.getDate()).padStart(2, "0")
   return `${year}-${month}-${day}`
 }
+
+/** Monday → today (local calendar), for week-to-date ranking. */
+export function weekToDateRange(reference: Date = new Date()): {
+  from: string
+  to: string
+} {
+  const today = new Date(reference)
+  today.setHours(0, 0, 0, 0)
+  const monday = new Date(today)
+  monday.setDate(today.getDate() - ((today.getDay() + 6) % 7))
+  return {
+    from: toDateInputValue(monday),
+    to: toDateInputValue(today),
+  }
+}

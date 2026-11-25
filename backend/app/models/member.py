@@ -27,3 +27,8 @@ class Member(Base):
         back_populates="member",
         cascade="all, delete-orphan",
     )
+    borrow_records = relationship(
+        "BorrowRecord",
+        back_populates="member",
+        cascade="all, delete-orphan",
+    )

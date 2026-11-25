@@ -1,5 +1,5 @@
 export type AdminKpi = {
-  key: "members" | "sessions" | "borrows" | "returns"
+  key: "members" | "sessions" | "active_days" | "borrows" | "returns"
   label: string
   value: number
   delta: string
@@ -20,6 +20,14 @@ export type StatusSlice = {
   name: string
   value: number
   fill: string
+}
+
+export type AdminDashboardData = {
+  kpis: AdminKpi[]
+  weeklyAttendance: WeeklyAttendancePoint[]
+  attendanceStatus: StatusSlice[]
+  borrowsByCollege: NamedCount[]
+  topOrganizations: NamedCount[]
 }
 
 export type AdminActivityKind = "Attendance" | "Borrow"

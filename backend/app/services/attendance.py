@@ -1,7 +1,7 @@
 from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import Select, select
+from sqlalchemy import Select, case, func, select
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.config import Settings
@@ -13,6 +13,7 @@ from app.schemas.attendance import (
     AttendanceStatusApi,
     AttendanceSummaryOut,
     AttendanceTypeApi,
+    EmployeeAttendanceOut,
 )
 
 LOCAL_TZ = ZoneInfo("Asia/Manila")
@@ -67,6 +68,15 @@ def parse_day_bounds(
         else None
     )
     return start, end
+
+
+def current_week_dates(reference: datetime | None = None) -> tuple[date, date]:
+    """Monday–Sunday inclusive for the Asia/Manila calendar week."""
+    now = (reference or datetime.now(tz=LOCAL_TZ)).astimezone(LOCAL_TZ)
+    today = now.date()
+    monday = today - timedelta(days=today.weekday())
+    sunday = monday + timedelta(days=6)
+    return monday, sunday
 
 
 def records_query(
@@ -171,17 +181,22 @@ def create_scan(
         raise LookupError(f"Unknown ID “{raw_member_id.strip()}”.")
 
     db_type = api_type_to_db(scan_type)
+    scanned_at = datetime.now(tz=LOCAL_TZ)
+    today = scanned_at.astimezone(LOCAL_TZ).date()
+    day_start, day_end = parse_day_bounds(today, today)
+    assert day_start is not None and day_end is not None
+
     duplicate = db.scalar(
         select(AttendanceRecord.id).where(
             AttendanceRecord.member_id == member.id,
             AttendanceRecord.type == db_type,
+            AttendanceRecord.scanned_at >= day_start,
+            AttendanceRecord.scanned_at < day_end,
         )
     )
     if duplicate is not None:
         label = scan_type.value
-        raise ConflictError(f"{member.name} already has {label} recorded.")
-
-    scanned_at = datetime.now(tz=LOCAL_TZ)
+        raise ConflictError(f"{member.name} already has {label} recorded today.")
     record = AttendanceRecord(
         member_id=member.id,
         type=db_type,
@@ -198,6 +213,98 @@ def create_scan(
     )
     assert record is not None
     return serialize_record(record)
+
+
+def list_employee_stats(
+    db: Session,
+    *,
+    from_date: date | None = None,
+    to_date: date | None = None,
+) -> list[EmployeeAttendanceOut]:
+    if from_date is None or to_date is None:
+        week_from, week_to = current_week_dates()
+        from_date = from_date or week_from
+        to_date = to_date or week_to
+
+    start, end = parse_day_bounds(from_date, to_date)
+    assert start is not None and end is not None
+
+    week_stats = (
+        select(
+            AttendanceRecord.member_id.label("member_id"),
+            func.coalesce(
+                func.sum(
+                    case(
+                        (
+                            (AttendanceRecord.type == AttendanceType.time_in)
+                            & (AttendanceRecord.status == AttendanceStatus.present),
+                            1,
+                        ),
+                        else_=0,
+                    )
+                ),
+                0,
+            ).label("present_week"),
+            func.coalesce(
+                func.sum(
+                    case(
+                        (
+                            (AttendanceRecord.type == AttendanceType.time_in)
+                            & (AttendanceRecord.status == AttendanceStatus.late),
+                            1,
+                        ),
+                        else_=0,
+                    )
+                ),
+                0,
+            ).label("late_week"),
+            func.count().label("scan_count_week"),
+        )
+        .where(
+            AttendanceRecord.scanned_at >= start,
+            AttendanceRecord.scanned_at < end,
+        )
+        .group_by(AttendanceRecord.member_id)
+        .subquery()
+    )
+
+    last_scans = (
+        select(
+            AttendanceRecord.member_id.label("member_id"),
+            func.max(AttendanceRecord.scanned_at).label("last_scan_at"),
+        )
+        .group_by(AttendanceRecord.member_id)
+        .subquery()
+    )
+
+    rows = db.execute(
+        select(
+            Member,
+            week_stats.c.present_week,
+            week_stats.c.late_week,
+            week_stats.c.scan_count_week,
+            last_scans.c.last_scan_at,
+        )
+        .outerjoin(week_stats, week_stats.c.member_id == Member.id)
+        .outerjoin(last_scans, last_scans.c.member_id == Member.id)
+        .where(Member.is_active.is_(True))
+        .order_by(Member.name.asc())
+    ).all()
+
+    return [
+        EmployeeAttendanceOut(
+            id=member.id,
+            name=member.name,
+            department=member.department,
+            college=member.college,
+            organization=member.organization,
+            present_week=int(present_week or 0),
+            late_week=int(late_week or 0),
+            scan_count_week=int(scan_count_week or 0),
+            last_scan_at=last_scan_at,
+        )
+        for member, present_week, late_week, scan_count_week, last_scan_at in rows
+    ]
 
 
 class ConflictError(Exception):

@@ -3,7 +3,9 @@ from sqlalchemy.orm import Session
 
 from app.core.config import Settings
 from app.core.security import hash_password
+from app.data.seed_calculators import build_seed_calculators
 from app.data.seed_members import build_seed_members
+from app.models.calculator import Calculator
 from app.models.member import Member
 from app.models.user import User, UserRole
 
@@ -41,6 +43,27 @@ def ensure_seed_members(db: Session) -> int:
                 department=item["department"],
                 college=item["college"],
                 organization=item["organization"],
+                is_active=True,
+            )
+        )
+        created += 1
+
+    if created:
+        db.commit()
+    return created
+
+
+def ensure_seed_calculators(db: Session) -> int:
+    """Insert missing calculators. Returns number of rows created."""
+    created = 0
+    for item in build_seed_calculators(16):
+        existing = db.get(Calculator, item["id"])
+        if existing is not None:
+            continue
+        db.add(
+            Calculator(
+                id=item["id"],
+                label=item["label"],
                 is_active=True,
             )
         )
