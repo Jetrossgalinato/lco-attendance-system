@@ -91,50 +91,12 @@ export function AdminActivityLogsTable({
 
   return (
     <section className="surface-card flex flex-col overflow-hidden">
-      <div className="flex flex-col gap-3 border-b border-border/80 px-5 py-4">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-          <div className="space-y-1">
-            <h2 className="text-lg font-bold tracking-[-0.03em]">All activity</h2>
-            <p className="text-xs font-semibold tracking-[0.08em] text-muted-foreground uppercase">
-              {rangeLabel}
-            </p>
-          </div>
-
-          <div className="flex flex-wrap items-end gap-2.5">
-            <label className="w-fit space-y-1">
-              <span className="block text-[11px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
-                From
-              </span>
-              <Input
-                type="date"
-                value={fromDate}
-                max={toDate || undefined}
-                onChange={(event) => onFromDateChange(event.target.value)}
-                className="block h-9 w-[9.5rem] cursor-pointer px-2"
-              />
-            </label>
-            <label className="w-fit space-y-1">
-              <span className="block text-[11px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
-                To
-              </span>
-              <Input
-                type="date"
-                value={toDate}
-                min={fromDate || undefined}
-                onChange={(event) => onToDateChange(event.target.value)}
-                className="block h-9 w-[9.5rem] cursor-pointer px-2"
-              />
-            </label>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-9 cursor-pointer"
-              onClick={onTodayClick}
-            >
-              Today
-            </Button>
-          </div>
+      <div className="flex shrink-0 flex-col gap-3 border-b border-border/80 px-5 py-4 lg:flex-row lg:items-end lg:justify-between">
+        <div className="space-y-1">
+          <h2 className="text-lg font-bold tracking-[-0.03em]">All activity</h2>
+          <p className="text-xs font-semibold tracking-[0.08em] text-muted-foreground uppercase">
+            {rangeLabel}
+          </p>
         </div>
 
         <div className="flex flex-wrap items-end gap-2.5">
@@ -179,6 +141,39 @@ export function AdminActivityLogsTable({
               <option value="Returned">Returned</option>
             </MonitoringSelect>
           </label>
+          <label className="w-fit space-y-1">
+            <span className="block text-[11px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
+              From
+            </span>
+            <Input
+              type="date"
+              value={fromDate}
+              max={toDate || undefined}
+              onChange={(event) => onFromDateChange(event.target.value)}
+              className="block h-9 w-[9.5rem] cursor-pointer px-2"
+            />
+          </label>
+          <label className="w-fit space-y-1">
+            <span className="block text-[11px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
+              To
+            </span>
+            <Input
+              type="date"
+              value={toDate}
+              min={fromDate || undefined}
+              onChange={(event) => onToDateChange(event.target.value)}
+              className="block h-9 w-[9.5rem] cursor-pointer px-2"
+            />
+          </label>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-9 cursor-pointer"
+            onClick={onTodayClick}
+          >
+            Today
+          </Button>
         </div>
       </div>
 
