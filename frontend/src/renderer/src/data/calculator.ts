@@ -8,6 +8,7 @@ export const SCAN_COOLDOWN_MS = 1500
 export type CalculatorRecord = {
   id: string
   memberId: string
+  calculatorId: string
   name: string
   college: string
   organization: string
@@ -78,11 +79,13 @@ export function getMembersOut(records: CalculatorRecord[]): Set<string> {
 export function recordFromMember(
   member: Member,
   type: BorrowType,
-  scannedAt: Date = new Date()
+  scannedAt: Date = new Date(),
+  calculatorId = "CALC-01"
 ): CalculatorRecord {
   return {
     id: createBorrowId(),
     memberId: member.id,
+    calculatorId,
     name: member.name,
     college: member.college,
     organization: member.organization,
@@ -178,6 +181,7 @@ export const SEED_CALCULATOR: CalculatorRecord[] = [
   {
     id: "seed-c20",
     memberId: "LCO-1014",
+    calculatorId: "CALC-01",
     name: "Nina Ortega",
     college: "CMNS",
     organization: "Youth Fellowship",
@@ -188,6 +192,7 @@ export const SEED_CALCULATOR: CalculatorRecord[] = [
   {
     id: "seed-c19",
     memberId: "LCO-1011",
+    calculatorId: "CALC-02",
     name: "Kai Domingo",
     college: "CCIS",
     organization: "Children Ministry",
@@ -198,6 +203,7 @@ export const SEED_CALCULATOR: CalculatorRecord[] = [
   {
     id: "seed-c18",
     memberId: "LCO-1005",
+    calculatorId: "CALC-03",
     name: "Elena Garcia",
     college: "CEGS",
     organization: "Children Ministry",
@@ -208,6 +214,7 @@ export const SEED_CALCULATOR: CalculatorRecord[] = [
   {
     id: "seed-c17",
     memberId: "LCO-1012",
+    calculatorId: "CALC-04",
     name: "Lara Villanueva",
     college: "COFES",
     organization: "Tech Crew",
@@ -218,6 +225,7 @@ export const SEED_CALCULATOR: CalculatorRecord[] = [
   {
     id: "seed-c16",
     memberId: "LCO-1009",
+    calculatorId: "CALC-05",
     name: "Isabel Navarro",
     college: "CMNS",
     organization: "Media Team",
@@ -228,6 +236,7 @@ export const SEED_CALCULATOR: CalculatorRecord[] = [
   {
     id: "seed-c15",
     memberId: "LCO-1013",
+    calculatorId: "CALC-06",
     name: "Marco Dela Cruz",
     college: "CED",
     organization: "LCO Core",
@@ -238,6 +247,7 @@ export const SEED_CALCULATOR: CalculatorRecord[] = [
   {
     id: "seed-c14",
     memberId: "LCO-1002",
+    calculatorId: "CALC-07",
     name: "Ben Santos",
     college: "COFES",
     organization: "Youth Fellowship",
@@ -248,6 +258,7 @@ export const SEED_CALCULATOR: CalculatorRecord[] = [
   {
     id: "seed-c13",
     memberId: "LCO-1004",
+    calculatorId: "CALC-08",
     name: "Diego Cruz",
     college: "CMNS",
     organization: "Usher Corps",
@@ -258,6 +269,7 @@ export const SEED_CALCULATOR: CalculatorRecord[] = [
   {
     id: "seed-c12",
     memberId: "LCO-1008",
+    calculatorId: "CALC-09",
     name: "Hiro Tanaka",
     college: "CED",
     organization: "Youth Fellowship",
@@ -268,6 +280,7 @@ export const SEED_CALCULATOR: CalculatorRecord[] = [
   {
     id: "seed-c11",
     memberId: "LCO-1005",
+    calculatorId: "CALC-10",
     name: "Elena Garcia",
     college: "CEGS",
     organization: "Children Ministry",
@@ -278,6 +291,7 @@ export const SEED_CALCULATOR: CalculatorRecord[] = [
   {
     id: "seed-c10",
     memberId: "LCO-1003",
+    calculatorId: "CALC-11",
     name: "Carla Mendoza",
     college: "CED",
     organization: "Media Team",
@@ -288,6 +302,7 @@ export const SEED_CALCULATOR: CalculatorRecord[] = [
   {
     id: "seed-c9",
     memberId: "LCO-1001",
+    calculatorId: "CALC-12",
     name: "Ana Reyes",
     college: "CCIS",
     organization: "LCO Core",
@@ -298,6 +313,7 @@ export const SEED_CALCULATOR: CalculatorRecord[] = [
   {
     id: "seed-c8",
     memberId: "LCO-1006",
+    calculatorId: "CALC-13",
     name: "Felix Ramos",
     college: "CCIS",
     organization: "Tech Crew",
@@ -308,6 +324,7 @@ export const SEED_CALCULATOR: CalculatorRecord[] = [
   {
     id: "seed-c7",
     memberId: "LCO-1002",
+    calculatorId: "CALC-14",
     name: "Ben Santos",
     college: "COFES",
     organization: "Youth Fellowship",
@@ -318,6 +335,7 @@ export const SEED_CALCULATOR: CalculatorRecord[] = [
   {
     id: "seed-c6",
     memberId: "LCO-1003",
+    calculatorId: "CALC-15",
     name: "Carla Mendoza",
     college: "CED",
     organization: "Media Team",
@@ -328,6 +346,7 @@ export const SEED_CALCULATOR: CalculatorRecord[] = [
   {
     id: "seed-c5",
     memberId: "LCO-1010",
+    calculatorId: "CALC-16",
     name: "Jonas Lim",
     college: "CEGS",
     organization: "Usher Corps",
@@ -338,6 +357,7 @@ export const SEED_CALCULATOR: CalculatorRecord[] = [
   {
     id: "seed-c4",
     memberId: "LCO-1007",
+    calculatorId: "CALC-17",
     name: "Gina Lopez",
     college: "COFES",
     organization: "LCO Core",
@@ -348,6 +368,7 @@ export const SEED_CALCULATOR: CalculatorRecord[] = [
   {
     id: "seed-c3",
     memberId: "LCO-1010",
+    calculatorId: "CALC-18",
     name: "Jonas Lim",
     college: "CEGS",
     organization: "Usher Corps",
@@ -358,6 +379,7 @@ export const SEED_CALCULATOR: CalculatorRecord[] = [
   {
     id: "seed-c2",
     memberId: "LCO-1009",
+    calculatorId: "CALC-19",
     name: "Isabel Navarro",
     college: "CMNS",
     organization: "Media Team",
@@ -368,6 +390,7 @@ export const SEED_CALCULATOR: CalculatorRecord[] = [
   {
     id: "seed-c1",
     memberId: "LCO-1009",
+    calculatorId: "CALC-20",
     name: "Isabel Navarro",
     college: "CMNS",
     organization: "Media Team",

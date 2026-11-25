@@ -1,10 +1,34 @@
-import { useMemo } from "react"
+import { useCallback, useEffect, useState } from "react"
 
 import { AdminEmployeesTable } from "@/components/admin/admin-employees-table"
-import { getEmployeeAttendanceStats } from "@/data/admin-monitoring"
+import { Button } from "@/components/ui/button"
+import type { EmployeeAttendanceStats } from "@/data/admin-monitoring"
+import { fetchAttendanceEmployees } from "@/lib/api"
 
 export function AdminAttendanceMonitoringPage() {
-  const employees = useMemo(() => getEmployeeAttendanceStats(), [])
+  const [employees, setEmployees] = useState<EmployeeAttendanceStats[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  const loadEmployees = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const rows = await fetchAttendanceEmployees()
+      setEmployees(rows)
+    } catch (err) {
+      setEmployees([])
+      setError(
+        err instanceof Error ? err.message : "Failed to load attendance stats."
+      )
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    void loadEmployees()
+  }, [loadEmployees])
 
   return (
     <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-8 px-2 py-4 sm:px-4 md:px-6 md:py-6">
@@ -20,7 +44,28 @@ export function AdminAttendanceMonitoringPage() {
         </p>
       </header>
 
-      <AdminEmployeesTable rows={employees} className="min-h-0 flex-1" />
+      {error ? (
+        <div className="surface-card flex flex-col items-start gap-3 px-5 py-6">
+          <p className="text-sm font-medium text-destructive" role="alert">
+            {error}
+          </p>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="cursor-pointer"
+            onClick={() => void loadEmployees()}
+          >
+            Retry
+          </Button>
+        </div>
+      ) : loading ? (
+        <div className="surface-card px-5 py-10">
+          <p className="text-sm text-muted-foreground">Loading employees…</p>
+        </div>
+      ) : (
+        <AdminEmployeesTable rows={employees} className="min-h-0 flex-1" />
+      )}
     </main>
   )
 }

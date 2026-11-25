@@ -4,6 +4,7 @@ import {
   LayoutDashboard,
   LogOut,
   ScrollText,
+  Users,
 } from "lucide-react"
 
 import { useAlert } from "@/components/alert-provider"
@@ -61,6 +62,11 @@ const NAV_ITEMS: NavItem[] = [
     id: "activity",
     label: "Activity Logs",
     icon: ScrollText,
+  },
+  {
+    id: "members",
+    label: "Manage Members",
+    icon: Users,
   },
 ]
 

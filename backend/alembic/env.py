@@ -7,7 +7,7 @@ from app.core.config import get_settings
 from app.db.base import Base
 
 # Import models so autogenerate / metadata includes them.
-from app.models import AttendanceRecord, Member, User  # noqa: F401
+from app.models import AttendanceRecord, BorrowRecord, Member, User  # noqa: F401
 
 config = context.config
 

@@ -1,1 +1,6 @@
-export type AdminPage = "dashboard" | "attendance" | "borrowing" | "activity"
+export type AdminPage =
+  | "dashboard"
+  | "attendance"
+  | "borrowing"
+  | "activity"
+  | "members"

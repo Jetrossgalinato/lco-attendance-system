@@ -1,4 +1,17 @@
 import type {
+  AdminActivityKind,
+  AdminActivityRow,
+  AdminDashboardData,
+  AdminKpi,
+  NamedCount,
+  StatusSlice,
+  WeeklyAttendancePoint,
+} from "@/data/admin"
+import type {
+  CurrentlyOutRow,
+  EmployeeAttendanceStats,
+} from "@/data/admin-monitoring"
+import type {
   AttendanceRank,
   AttendanceRecord,
   AttendanceStatus,
@@ -6,6 +19,35 @@ import type {
   AttendanceType,
 } from "@/data/attendance"
 import type { AuthSession } from "@/data/auth"
+import type {
+  BorrowStatus,
+  BorrowType,
+  CalculatorRecord,
+  CalculatorSummary,
+  GroupRank,
+} from "@/data/calculator"
+import type { Member } from "@/data/members"
+
+export type ManagedMember = Member & {
+  isActive: boolean
+  createdAt: string
+}
+
+export type MemberWritePayload = {
+  id?: string
+  name: string
+  department: string
+  college: string
+  organization: string
+}
+
+export type MemberUpdatePayload = {
+  name?: string
+  department?: string
+  college?: string
+  organization?: string
+  is_active?: boolean
+}
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000"
 const TOKEN_KEY = "lco-access-token"
@@ -28,6 +70,18 @@ type AttendanceRankApi = {
   count: number
 }
 
+type EmployeeAttendanceApi = {
+  id: string
+  name: string
+  department: string
+  college: string
+  organization: string
+  present_week: number
+  late_week: number
+  scan_count_week: number
+  last_scan_at: string | null
+}
+
 export type AttendanceDateRange = {
   from?: string
   to?: string
@@ -35,6 +89,10 @@ export type AttendanceDateRange = {
 
 export type ScanCreateResult =
   | { ok: true; record: AttendanceRecord }
+  | { ok: false; message: string }
+
+export type BorrowScanCreateResult =
+  | { ok: true; record: CalculatorRecord }
   | { ok: false; message: string }
 
 export type HealthResponse = {
@@ -106,6 +164,43 @@ export function clearAuth(): void {
   }
 }
 
+export class SessionExpiredError extends Error {
+  constructor(message = "Session expired") {
+    super(message)
+    this.name = "SessionExpiredError"
+  }
+}
+
+type UnauthorizedListener = () => void
+
+const unauthorizedListeners = new Set<UnauthorizedListener>()
+let unauthorizedNotified = false
+
+export function onUnauthorized(listener: UnauthorizedListener): () => void {
+  unauthorizedListeners.add(listener)
+  return () => {
+    unauthorizedListeners.delete(listener)
+  }
+}
+
+function notifyUnauthorized(): void {
+  if (unauthorizedNotified) return
+  unauthorizedNotified = true
+  clearAuth()
+  for (const listener of unauthorizedListeners) {
+    try {
+      listener()
+    } catch {
+      // Listener errors must not break API flow.
+    }
+  }
+}
+
+/** Call after a successful login so the next 401 can notify again. */
+export function resetUnauthorizedGuard(): void {
+  unauthorizedNotified = false
+}
+
 export function authHeaders(
   headers: HeadersInit = {}
 ): Record<string, string> {
@@ -119,6 +214,23 @@ export function authHeaders(
     result[key] = value
   })
   return result
+}
+
+async function apiAuthFetch(
+  input: string,
+  init: RequestInit = {}
+): Promise<Response> {
+  const response = await fetch(input, {
+    ...init,
+    headers: authHeaders(init.headers),
+  })
+
+  if (response.status === 401) {
+    notifyUnauthorized()
+    throw new SessionExpiredError("Session expired — please sign in again.")
+  }
+
+  return response
 }
 
 export async function login(
@@ -174,6 +286,7 @@ export async function login(
     email: data.user.email,
     role: data.user.role,
   }
+  resetUnauthorizedGuard()
   persistAuth(session, data.access_token)
   return { ok: true, session, accessToken: data.access_token }
 }
@@ -183,9 +296,7 @@ export async function fetchMe(): Promise<AuthSession | null> {
   if (!token) return null
 
   try {
-    const response = await fetch(`${API_URL}/auth/me`, {
-      headers: authHeaders(),
-    })
+    const response = await apiAuthFetch(`${API_URL}/auth/me`)
     if (!response.ok) {
       clearAuth()
       return null
@@ -202,7 +313,10 @@ export async function fetchMe(): Promise<AuthSession | null> {
     }
     persistAuth(session, token)
     return session
-  } catch {
+  } catch (error) {
+    if (error instanceof SessionExpiredError) {
+      return null
+    }
     return getStoredSession()
   }
 }
@@ -330,7 +444,7 @@ export async function createAttendanceScan(
   if (!response.ok) {
     const fallback =
       response.status === 409
-        ? "That Time In/Out is already recorded."
+        ? "That Time In/Out is already recorded today."
         : response.status === 404
           ? `Unknown ID “${trimmed}”.`
           : "Could not record scan."
@@ -342,4 +456,438 @@ export async function createAttendanceScan(
 
   const row = (await response.json()) as AttendanceRecordApi
   return { ok: true, record: mapAttendanceRecord(row) }
+}
+
+function mapEmployeeAttendance(
+  row: EmployeeAttendanceApi
+): EmployeeAttendanceStats {
+  return {
+    id: row.id,
+    name: row.name,
+    department: row.department,
+    college: row.college,
+    organization: row.organization,
+    presentWeek: row.present_week,
+    lateWeek: row.late_week,
+    scanCountWeek: row.scan_count_week,
+    lastScanAt: row.last_scan_at,
+  }
+}
+
+export async function fetchAttendanceEmployees(
+  range: AttendanceDateRange = {}
+): Promise<EmployeeAttendanceStats[]> {
+  const response = await apiAuthFetch(
+    `${API_URL}/attendance/employees${attendanceRangeQuery(range)}`
+  )
+  if (!response.ok) {
+    throw new Error(
+      await readErrorMessage(
+        response,
+        `Failed to load employees (${response.status})`
+      )
+    )
+  }
+  const rows = (await response.json()) as EmployeeAttendanceApi[]
+  return rows.map(mapEmployeeAttendance)
+}
+
+type MemberApi = {
+  id: string
+  name: string
+  department: string
+  college: string
+  organization: string
+  is_active: boolean
+  created_at: string
+}
+
+function mapManagedMember(row: MemberApi): ManagedMember {
+  return {
+    id: row.id,
+    name: row.name,
+    department: row.department,
+    college: row.college,
+    organization: row.organization,
+    isActive: row.is_active,
+    createdAt: row.created_at,
+  }
+}
+
+export async function fetchMembers(
+  active: "all" | "true" | "false" = "all"
+): Promise<ManagedMember[]> {
+  const params = new URLSearchParams({ active })
+  const response = await apiAuthFetch(
+    `${API_URL}/members?${params.toString()}`
+  )
+  if (!response.ok) {
+    throw new Error(
+      await readErrorMessage(
+        response,
+        `Failed to load members (${response.status})`
+      )
+    )
+  }
+  const rows = (await response.json()) as MemberApi[]
+  return rows.map(mapManagedMember)
+}
+
+export async function fetchNextMemberId(): Promise<string> {
+  const response = await apiAuthFetch(`${API_URL}/members/next-id`)
+  if (!response.ok) {
+    throw new Error(
+      await readErrorMessage(
+        response,
+        `Failed to load next member ID (${response.status})`
+      )
+    )
+  }
+  const body = (await response.json()) as { id: string }
+  return body.id
+}
+
+export async function createMember(
+  payload: MemberWritePayload
+): Promise<ManagedMember> {
+  const response = await apiAuthFetch(`${API_URL}/members`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      id: payload.id?.trim() || undefined,
+      name: payload.name,
+      department: payload.department,
+      college: payload.college,
+      organization: payload.organization,
+    }),
+  })
+  if (!response.ok) {
+    throw new Error(
+      await readErrorMessage(
+        response,
+        `Failed to create member (${response.status})`
+      )
+    )
+  }
+  return mapManagedMember((await response.json()) as MemberApi)
+}
+
+export async function updateMember(
+  memberId: string,
+  payload: MemberUpdatePayload
+): Promise<ManagedMember> {
+  const response = await apiAuthFetch(
+    `${API_URL}/members/${encodeURIComponent(memberId)}`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }
+  )
+  if (!response.ok) {
+    throw new Error(
+      await readErrorMessage(
+        response,
+        `Failed to update member (${response.status})`
+      )
+    )
+  }
+  return mapManagedMember((await response.json()) as MemberApi)
+}
+
+type BorrowRecordApi = {
+  id: string
+  member_id: string
+  calculator_id: string
+  name: string
+  college: string
+  organization: string
+  type: BorrowType
+  scanned_at: string
+  status: BorrowStatus
+}
+
+type BorrowSummaryApi = {
+  out_now: number
+  borrowed_today: number
+  returned_today: number
+  return_rate: number
+}
+
+type BorrowRankApi = {
+  key: string
+  label: string
+  count: number
+}
+
+type CurrentlyOutApi = {
+  member_id: string
+  calculator_id: string
+  name: string
+  college: string
+  organization: string
+  borrowed_at: string
+  status: "Not Returned" | "Returned"
+}
+
+function mapBorrowRecord(row: BorrowRecordApi): CalculatorRecord {
+  return {
+    id: row.id,
+    memberId: row.member_id,
+    calculatorId: row.calculator_id,
+    name: row.name,
+    college: row.college,
+    organization: row.organization,
+    type: row.type,
+    scannedAt: row.scanned_at,
+    status: row.status,
+  }
+}
+
+function mapBorrowSummary(row: BorrowSummaryApi): CalculatorSummary {
+  return {
+    outNow: row.out_now,
+    borrowedToday: row.borrowed_today,
+    returnedToday: row.returned_today,
+    returnRate: row.return_rate,
+  }
+}
+
+function mapBorrowRank(row: BorrowRankApi): GroupRank {
+  return {
+    key: row.key,
+    label: row.label,
+    count: row.count,
+  }
+}
+
+function mapCurrentlyOut(row: CurrentlyOutApi): CurrentlyOutRow {
+  return {
+    memberId: row.member_id,
+    calculatorId: row.calculator_id,
+    name: row.name,
+    college: row.college,
+    organization: row.organization,
+    borrowedAt: row.borrowed_at,
+    status: row.status,
+  }
+}
+
+export async function fetchBorrowScans(
+  range: AttendanceDateRange = {}
+): Promise<CalculatorRecord[]> {
+  const response = await fetch(
+    `${API_URL}/borrows/scans${attendanceRangeQuery(range)}`
+  )
+  if (!response.ok) {
+    throw new Error(
+      await readErrorMessage(
+        response,
+        `Failed to load borrow scans (${response.status})`
+      )
+    )
+  }
+  const rows = (await response.json()) as BorrowRecordApi[]
+  return rows.map(mapBorrowRecord)
+}
+
+export async function fetchBorrowSummary(): Promise<CalculatorSummary> {
+  const response = await fetch(`${API_URL}/borrows/summary`)
+  if (!response.ok) {
+    throw new Error(
+      await readErrorMessage(
+        response,
+        `Failed to load borrow summary (${response.status})`
+      )
+    )
+  }
+  return mapBorrowSummary((await response.json()) as BorrowSummaryApi)
+}
+
+export async function fetchBorrowRanking(
+  groupBy: "college" | "organization",
+  range: AttendanceDateRange = {},
+  limit = 5
+): Promise<GroupRank[]> {
+  const params = new URLSearchParams()
+  params.set("group_by", groupBy)
+  if (range.from) params.set("from", range.from)
+  if (range.to) params.set("to", range.to)
+  params.set("limit", String(limit))
+  const response = await fetch(
+    `${API_URL}/borrows/ranking?${params.toString()}`
+  )
+  if (!response.ok) {
+    throw new Error(
+      await readErrorMessage(
+        response,
+        `Failed to load borrow ranking (${response.status})`
+      )
+    )
+  }
+  const rows = (await response.json()) as BorrowRankApi[]
+  return rows.map(mapBorrowRank)
+}
+
+export async function createBorrowScan(
+  memberId: string,
+  type: BorrowType,
+  calculatorId: string
+): Promise<BorrowScanCreateResult> {
+  const trimmedMember = memberId.trim()
+  if (!trimmedMember) {
+    return { ok: false, message: "Enter or scan a member ID." }
+  }
+  const trimmedCalculator = calculatorId.trim()
+  if (!trimmedCalculator) {
+    return { ok: false, message: "Enter or scan a calculator ID." }
+  }
+
+  let response: Response
+  try {
+    response = await fetch(`${API_URL}/borrows/scans`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        member_id: trimmedMember,
+        calculator_id: trimmedCalculator,
+        type,
+      }),
+    })
+  } catch {
+    return {
+      ok: false,
+      message: "Cannot reach the server. Is the API running?",
+    }
+  }
+
+  if (!response.ok) {
+    const fallback =
+      response.status === 409
+        ? "That borrow/return is not allowed right now."
+        : response.status === 404
+          ? `Unknown ID “${trimmedMember}” or calculator “${trimmedCalculator}”.`
+          : "Could not record scan."
+    return {
+      ok: false,
+      message: await readErrorMessage(response, fallback),
+    }
+  }
+
+  const row = (await response.json()) as BorrowRecordApi
+  return { ok: true, record: mapBorrowRecord(row) }
+}
+
+export async function fetchBorrowCurrentlyOut(): Promise<CurrentlyOutRow[]> {
+  const response = await apiAuthFetch(`${API_URL}/borrows/currently-out`)
+  if (!response.ok) {
+    throw new Error(
+      await readErrorMessage(
+        response,
+        `Failed to load currently out (${response.status})`
+      )
+    )
+  }
+  const rows = (await response.json()) as CurrentlyOutApi[]
+  return rows.map(mapCurrentlyOut)
+}
+
+type ActivityItemApi = {
+  id: string
+  occurred_at: string
+  member_id: string
+  actor: string
+  kind: AdminActivityKind
+  detail: string
+  status: string
+}
+
+function mapActivityItem(row: ActivityItemApi): AdminActivityRow {
+  const occurredAt = row.occurred_at
+  const time = new Date(occurredAt).toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+  })
+  return {
+    id: row.id,
+    time,
+    occurredAt,
+    actor: row.actor,
+    kind: row.kind,
+    detail: row.detail,
+    status: row.status,
+    memberId: row.member_id,
+  }
+}
+
+export async function fetchAdminActivity(
+  range: AttendanceDateRange = {}
+): Promise<AdminActivityRow[]> {
+  const response = await apiAuthFetch(
+    `${API_URL}/admin/activity${attendanceRangeQuery(range)}`
+  )
+  if (!response.ok) {
+    throw new Error(
+      await readErrorMessage(
+        response,
+        `Failed to load activity (${response.status})`
+      )
+    )
+  }
+  const rows = (await response.json()) as ActivityItemApi[]
+  return rows.map(mapActivityItem)
+}
+
+type DashboardKpiApi = {
+  key: AdminKpi["key"]
+  label: string
+  value: number
+  delta: string
+}
+
+type DashboardApi = {
+  kpis: DashboardKpiApi[]
+  weekly_attendance: WeeklyAttendancePoint[]
+  attendance_status: { name: string; value: number }[]
+  borrows_by_college: NamedCount[]
+  top_organizations: NamedCount[]
+}
+
+const STATUS_FILLS: Record<string, string> = {
+  Present: "#dce87a",
+  Late: "#ef9a9a",
+}
+
+function mapDashboard(row: DashboardApi): AdminDashboardData {
+  return {
+    kpis: row.kpis.map((kpi) => ({
+      key: kpi.key,
+      label: kpi.label,
+      value: kpi.value,
+      delta: kpi.delta,
+    })),
+    weeklyAttendance: row.weekly_attendance,
+    attendanceStatus: row.attendance_status.map(
+      (slice): StatusSlice => ({
+        name: slice.name,
+        value: slice.value,
+        fill: STATUS_FILLS[slice.name] ?? "#dce87a",
+      })
+    ),
+    borrowsByCollege: row.borrows_by_college,
+    topOrganizations: row.top_organizations,
+  }
+}
+
+export async function fetchAdminDashboard(): Promise<AdminDashboardData> {
+  const response = await apiAuthFetch(`${API_URL}/admin/dashboard`)
+  if (!response.ok) {
+    throw new Error(
+      await readErrorMessage(
+        response,
+        `Failed to load dashboard (${response.status})`
+      )
+    )
+  }
+  return mapDashboard((await response.json()) as DashboardApi)
 }

@@ -141,6 +141,7 @@ export function CalculatorTable({ records }: CalculatorTableProps) {
                   <TableHead>Time</TableHead>
                   <TableHead>ID</TableHead>
                   <TableHead>Name</TableHead>
+                  <TableHead>Calculator</TableHead>
                   <TableHead>Type</TableHead>
                   <TableHead>Status</TableHead>
                 </TableRow>
@@ -156,6 +157,9 @@ export function CalculatorTable({ records }: CalculatorTableProps) {
                     </TableCell>
                     <TableCell className="font-semibold">
                       {record.name}
+                    </TableCell>
+                    <TableCell className="font-mono text-xs tracking-wide">
+                      {record.calculatorId}
                     </TableCell>
                     <TableCell>
                       <span

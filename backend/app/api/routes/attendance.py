@@ -3,12 +3,15 @@ from datetime import date
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
+from app.api.deps import get_current_user
 from app.core.config import Settings, get_settings
 from app.db.session import get_db
+from app.models.user import User
 from app.schemas.attendance import (
     AttendanceRankOut,
     AttendanceRecordOut,
     AttendanceSummaryOut,
+    EmployeeAttendanceOut,
     ScanCreateRequest,
 )
 from app.services import attendance as attendance_service
@@ -80,4 +83,16 @@ def ranking(
 ) -> list[AttendanceRankOut]:
     return attendance_service.rank_scans(
         db, from_date=from_date, to_date=to_date, limit=limit
+    )
+
+
+@router.get("/employees", response_model=list[EmployeeAttendanceOut])
+def list_employees(
+    from_date: date | None = Query(default=None, alias="from"),
+    to_date: date | None = Query(default=None, alias="to"),
+    db: Session = Depends(get_db),
+    _user: User = Depends(get_current_user),
+) -> list[EmployeeAttendanceOut]:
+    return attendance_service.list_employee_stats(
+        db, from_date=from_date, to_date=to_date
     )

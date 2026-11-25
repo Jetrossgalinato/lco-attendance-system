@@ -10,6 +10,7 @@ import {
   SCAN_COOLDOWN_MS,
   SCAN_FEEDBACK_MS,
   toDateInputValue,
+  weekToDateRange,
   type AttendanceRank,
   type AttendanceRecord,
   type AttendanceSummary,
@@ -103,11 +104,12 @@ export function AttendancePage({
 
   const refreshDesk = useCallback(async (from: string, to: string) => {
     const range = { from, to }
+    const rankingRange = weekToDateRange()
     try {
       const [nextRecords, nextSummary, nextRanks] = await Promise.all([
         fetchAttendanceScans(range),
         fetchAttendanceSummary(range),
-        fetchAttendanceRanking(range, 5),
+        fetchAttendanceRanking(rankingRange, 5),
       ])
       setRecords(nextRecords)
       setSummary(nextSummary)
