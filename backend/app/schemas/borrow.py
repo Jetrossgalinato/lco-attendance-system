@@ -17,12 +17,14 @@ class BorrowStatusApi(str, Enum):
 
 class BorrowScanCreateRequest(BaseModel):
     member_id: str = Field(min_length=1)
+    calculator_id: str = Field(min_length=1)
     type: BorrowTypeApi
 
 
 class BorrowRecordOut(BaseModel):
     id: UUID
     member_id: str
+    calculator_id: str
     name: str
     college: str
     organization: str
@@ -51,6 +53,7 @@ class LoanStatusApi(str, Enum):
 
 class CurrentlyOutOut(BaseModel):
     member_id: str
+    calculator_id: str
     name: str
     college: str
     organization: str

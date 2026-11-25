@@ -148,6 +148,7 @@ export function AdminCurrentlyOutTable({
                 <TableRow className="hover:bg-transparent">
                   <TableHead>Member ID</TableHead>
                   <TableHead>Name</TableHead>
+                  <TableHead>Calculator</TableHead>
                   <TableHead>College</TableHead>
                   <TableHead>Organization</TableHead>
                   <TableHead>Borrowed at</TableHead>
@@ -162,6 +163,9 @@ export function AdminCurrentlyOutTable({
                       {row.memberId}
                     </TableCell>
                     <TableCell className="font-semibold">{row.name}</TableCell>
+                    <TableCell className="font-mono text-xs tracking-wide">
+                      {row.calculatorId}
+                    </TableCell>
                     <TableCell>{row.college}</TableCell>
                     <TableCell>{row.organization}</TableCell>
                     <TableCell className="tabular-nums">

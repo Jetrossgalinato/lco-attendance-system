@@ -590,6 +590,7 @@ export async function updateMember(
 type BorrowRecordApi = {
   id: string
   member_id: string
+  calculator_id: string
   name: string
   college: string
   organization: string
@@ -613,6 +614,7 @@ type BorrowRankApi = {
 
 type CurrentlyOutApi = {
   member_id: string
+  calculator_id: string
   name: string
   college: string
   organization: string
@@ -624,6 +626,7 @@ function mapBorrowRecord(row: BorrowRecordApi): CalculatorRecord {
   return {
     id: row.id,
     memberId: row.member_id,
+    calculatorId: row.calculator_id,
     name: row.name,
     college: row.college,
     organization: row.organization,
@@ -653,6 +656,7 @@ function mapBorrowRank(row: BorrowRankApi): GroupRank {
 function mapCurrentlyOut(row: CurrentlyOutApi): CurrentlyOutRow {
   return {
     memberId: row.member_id,
+    calculatorId: row.calculator_id,
     name: row.name,
     college: row.college,
     organization: row.organization,
@@ -719,11 +723,16 @@ export async function fetchBorrowRanking(
 
 export async function createBorrowScan(
   memberId: string,
-  type: BorrowType
+  type: BorrowType,
+  calculatorId: string
 ): Promise<BorrowScanCreateResult> {
-  const trimmed = memberId.trim()
-  if (!trimmed) {
+  const trimmedMember = memberId.trim()
+  if (!trimmedMember) {
     return { ok: false, message: "Enter or scan a member ID." }
+  }
+  const trimmedCalculator = calculatorId.trim()
+  if (!trimmedCalculator) {
+    return { ok: false, message: "Enter or scan a calculator ID." }
   }
 
   let response: Response
@@ -731,7 +740,11 @@ export async function createBorrowScan(
     response = await fetch(`${API_URL}/borrows/scans`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ member_id: trimmed, type }),
+      body: JSON.stringify({
+        member_id: trimmedMember,
+        calculator_id: trimmedCalculator,
+        type,
+      }),
     })
   } catch {
     return {
@@ -745,7 +758,7 @@ export async function createBorrowScan(
       response.status === 409
         ? "That borrow/return is not allowed right now."
         : response.status === 404
-          ? `Unknown ID “${trimmed}”.`
+          ? `Unknown ID “${trimmedMember}” or calculator “${trimmedCalculator}”.`
           : "Could not record scan."
     return {
       ok: false,

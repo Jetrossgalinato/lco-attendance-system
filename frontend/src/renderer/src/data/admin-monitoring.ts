@@ -24,6 +24,7 @@ export type LoanMonitorStatus = "Not Returned" | "Returned"
 
 export type CurrentlyOutRow = {
   memberId: string
+  calculatorId: string
   name: string
   college: string
   organization: string
@@ -144,10 +145,12 @@ function buildBorrowLog(members: Member[]): CalculatorRecord[] {
         (index * 4) % 50
       )
 
+      const calculatorId = `CALC-${String(((dayOffset + index) % 16) + 1).padStart(2, "0")}`
       seq += 1
       records.push({
         id: `mon-bor-${seq}`,
         memberId: member.id,
+        calculatorId,
         name: member.name,
         college: member.college,
         organization: member.organization,
@@ -171,6 +174,7 @@ function buildBorrowLog(members: Member[]): CalculatorRecord[] {
         records.push({
           id: `mon-bor-${seq}`,
           memberId: member.id,
+          calculatorId,
           name: member.name,
           college: member.college,
           organization: member.organization,
@@ -247,6 +251,7 @@ export function getCurrentlyOutRows(
   return [...latestBorrow.values()]
     .map((record) => ({
       memberId: record.memberId,
+      calculatorId: record.calculatorId,
       name: record.name,
       college: record.college,
       organization: record.organization,

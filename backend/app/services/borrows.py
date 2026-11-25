@@ -4,6 +4,7 @@ from sqlalchemy import Select, select
 from sqlalchemy.orm import Session, joinedload
 
 from app.models.borrow import BorrowRecord, BorrowStatus, BorrowType
+from app.models.calculator import Calculator
 from app.models.member import Member
 from app.schemas.borrow import (
     BorrowRankOut,
@@ -64,6 +65,7 @@ def serialize_record(record: BorrowRecord) -> BorrowRecordOut:
     return BorrowRecordOut(
         id=record.id,
         member_id=record.member_id,
+        calculator_id=record.calculator_id,
         name=record.member.name,
         college=record.member.college,
         organization=record.member.organization,
@@ -96,10 +98,29 @@ def _latest_by_member(db: Session) -> dict[str, BorrowRecord]:
     return latest
 
 
+def _latest_by_calculator(db: Session) -> dict[str, BorrowRecord]:
+    rows = db.scalars(
+        select(BorrowRecord).order_by(BorrowRecord.scanned_at.desc())
+    ).all()
+    latest: dict[str, BorrowRecord] = {}
+    for row in rows:
+        if row.calculator_id not in latest:
+            latest[row.calculator_id] = row
+    return latest
+
+
 def members_currently_out(db: Session) -> set[str]:
     return {
         member_id
         for member_id, record in _latest_by_member(db).items()
+        if record.type == BorrowType.borrow
+    }
+
+
+def calculators_currently_out(db: Session) -> set[str]:
+    return {
+        calculator_id
+        for calculator_id, record in _latest_by_calculator(db).items()
         if record.type == BorrowType.borrow
     }
 
@@ -186,6 +207,7 @@ def list_currently_out(db: Session) -> list[CurrentlyOutOut]:
         if latest_event.type == BorrowType.borrow:
             status = LoanStatusApi.not_returned
             borrowed_at = latest_event.scanned_at
+            calculator_id = latest_event.calculator_id
         else:
             status = LoanStatusApi.returned
             prior_borrow = next(
@@ -197,10 +219,16 @@ def list_currently_out(db: Session) -> list[CurrentlyOutOut]:
                 if prior_borrow is not None
                 else latest_event.scanned_at
             )
+            calculator_id = (
+                prior_borrow.calculator_id
+                if prior_borrow is not None
+                else latest_event.calculator_id
+            )
 
         out_rows.append(
             CurrentlyOutOut(
                 member_id=member_id,
+                calculator_id=calculator_id,
                 name=latest_event.member.name,
                 college=latest_event.member.college,
                 organization=latest_event.member.organization,
@@ -215,27 +243,51 @@ def create_scan(
     db: Session,
     *,
     raw_member_id: str,
+    raw_calculator_id: str,
     scan_type: BorrowTypeApi,
 ) -> BorrowRecordOut:
     member_id = raw_member_id.strip().upper()
     if not member_id:
         raise ValueError("Enter or scan a member ID.")
 
+    calculator_id = raw_calculator_id.strip().upper()
+    if not calculator_id:
+        raise ValueError("Enter or scan a calculator ID.")
+
     member = db.get(Member, member_id)
     if member is None or not member.is_active:
         raise LookupError(f"Unknown ID “{raw_member_id.strip()}”.")
 
-    out_members = members_currently_out(db)
-    is_out = member.id in out_members
+    calculator = db.get(Calculator, calculator_id)
+    if calculator is None or not calculator.is_active:
+        raise LookupError(f"Unknown calculator “{raw_calculator_id.strip()}”.")
 
-    if scan_type == BorrowTypeApi.borrow and is_out:
-        raise BorrowConflictError(
-            f"{member.name} already has a calculator out."
-        )
-    if scan_type == BorrowTypeApi.return_ and not is_out:
-        raise BorrowConflictError(
-            f"{member.name} has nothing to return."
-        )
+    latest_by_member = _latest_by_member(db)
+    open_loan = latest_by_member.get(member.id)
+    member_is_out = (
+        open_loan is not None and open_loan.type == BorrowType.borrow
+    )
+    calculator_is_out = calculator.id in calculators_currently_out(db)
+
+    if scan_type == BorrowTypeApi.borrow:
+        if member_is_out:
+            raise BorrowConflictError(
+                f"{member.name} already has a calculator out."
+            )
+        if calculator_is_out:
+            raise BorrowConflictError(
+                f"{calculator.id} is already checked out."
+            )
+    else:
+        if not member_is_out or open_loan is None:
+            raise BorrowConflictError(
+                f"{member.name} has nothing to return."
+            )
+        if open_loan.calculator_id != calculator.id:
+            raise BorrowConflictError(
+                f"{member.name} must return {open_loan.calculator_id}, "
+                f"not {calculator.id}."
+            )
 
     db_type = api_type_to_db(scan_type)
     status = (
@@ -246,6 +298,7 @@ def create_scan(
     scanned_at = datetime.now(tz=LOCAL_TZ)
     record = BorrowRecord(
         member_id=member.id,
+        calculator_id=calculator.id,
         type=db_type,
         status=status,
         scanned_at=scanned_at,

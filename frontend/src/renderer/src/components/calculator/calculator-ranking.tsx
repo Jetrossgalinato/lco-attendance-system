@@ -100,7 +100,7 @@ export function CalculatorRanking({
       <div className="shrink-0 border-b border-border/80 px-5 py-4">
         <h2 className="text-lg font-bold tracking-[-0.03em]">Ranking</h2>
         <p className="mt-1 text-xs font-semibold tracking-[0.08em] text-muted-foreground uppercase">
-          Top colleges & orgs
+          Top colleges & orgs · this week
         </p>
       </div>
 

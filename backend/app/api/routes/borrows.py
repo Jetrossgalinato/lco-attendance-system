@@ -32,6 +32,7 @@ def create_scan(
         return borrows_service.create_scan(
             db,
             raw_member_id=body.member_id,
+            raw_calculator_id=body.calculator_id,
             scan_type=body.type,
         )
     except LookupError as exc:

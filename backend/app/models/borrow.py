@@ -24,6 +24,11 @@ class BorrowRecord(Base):
     __table_args__ = (
         Index("ix_borrow_records_member_scanned_at", "member_id", "scanned_at"),
         Index("ix_borrow_records_scanned_at", "scanned_at"),
+        Index(
+            "ix_borrow_records_calculator_scanned_at",
+            "calculator_id",
+            "scanned_at",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -34,6 +39,11 @@ class BorrowRecord(Base):
     member_id: Mapped[str] = mapped_column(
         String(32),
         ForeignKey("members.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    calculator_id: Mapped[str] = mapped_column(
+        String(32),
+        ForeignKey("calculators.id", ondelete="RESTRICT"),
         nullable=False,
     )
     type: Mapped[BorrowType] = mapped_column(
@@ -53,3 +63,4 @@ class BorrowRecord(Base):
     )
 
     member = relationship("Member", back_populates="borrow_records")
+    calculator = relationship("Calculator", back_populates="borrow_records")
