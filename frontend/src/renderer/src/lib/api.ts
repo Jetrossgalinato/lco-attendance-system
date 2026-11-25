@@ -1,3 +1,4 @@
+import type { AdminActivityKind, AdminActivityRow } from "@/data/admin"
 import type {
   CurrentlyOutRow,
   EmployeeAttendanceStats,
@@ -768,4 +769,50 @@ export async function fetchBorrowCurrentlyOut(): Promise<CurrentlyOutRow[]> {
   }
   const rows = (await response.json()) as CurrentlyOutApi[]
   return rows.map(mapCurrentlyOut)
+}
+
+type ActivityItemApi = {
+  id: string
+  occurred_at: string
+  member_id: string
+  actor: string
+  kind: AdminActivityKind
+  detail: string
+  status: string
+}
+
+function mapActivityItem(row: ActivityItemApi): AdminActivityRow {
+  const occurredAt = row.occurred_at
+  const time = new Date(occurredAt).toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+  })
+  return {
+    id: row.id,
+    time,
+    occurredAt,
+    actor: row.actor,
+    kind: row.kind,
+    detail: row.detail,
+    status: row.status,
+    memberId: row.member_id,
+  }
+}
+
+export async function fetchAdminActivity(
+  range: AttendanceDateRange = {}
+): Promise<AdminActivityRow[]> {
+  const response = await apiAuthFetch(
+    `${API_URL}/admin/activity${attendanceRangeQuery(range)}`
+  )
+  if (!response.ok) {
+    throw new Error(
+      await readErrorMessage(
+        response,
+        `Failed to load activity (${response.status})`
+      )
+    )
+  }
+  const rows = (await response.json()) as ActivityItemApi[]
+  return rows.map(mapActivityItem)
 }

@@ -3,7 +3,7 @@ import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import attendance, auth, borrows, health, members
+from app.api.routes import activity, attendance, auth, borrows, health, members
 from app.core.config import get_settings
 from app.db.session import SessionLocal
 from app.services.seed import ensure_seed_admin, ensure_seed_members
@@ -26,6 +26,7 @@ app.include_router(auth.router)
 app.include_router(attendance.router)
 app.include_router(borrows.router)
 app.include_router(members.router)
+app.include_router(activity.router)
 
 
 @app.on_event("startup")

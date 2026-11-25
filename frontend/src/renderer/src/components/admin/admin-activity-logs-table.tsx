@@ -13,18 +13,18 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import type { AdminActivityRow } from "@/data/admin"
-import {
-  endOfDay,
-  formatMonitoringDateTime,
-  startOfDay,
-  toDateInputValue,
-} from "@/data/admin-monitoring"
+import { formatMonitoringDateTime } from "@/data/admin-monitoring"
 import { cn } from "@/lib/utils"
 
 const PAGE_SIZE = 10
 
 type AdminActivityLogsTableProps = {
   rows: AdminActivityRow[]
+  fromDate: string
+  toDate: string
+  onFromDateChange: (value: string) => void
+  onToDateChange: (value: string) => void
+  onTodayClick: () => void
 }
 
 function statusClass(status: string): string {
@@ -41,28 +41,23 @@ function statusClass(status: string): string {
   }
 }
 
-export function AdminActivityLogsTable({ rows }: AdminActivityLogsTableProps) {
-  const today = toDateInputValue(new Date())
-  const weekAgo = toDateInputValue(
-    new Date(Date.now() - 6 * 24 * 60 * 60 * 1000)
-  )
-
-  const [fromDate, setFromDate] = useState(weekAgo)
-  const [toDate, setToDate] = useState(today)
+export function AdminActivityLogsTable({
+  rows,
+  fromDate,
+  toDate,
+  onFromDateChange,
+  onToDateChange,
+  onTodayClick,
+}: AdminActivityLogsTableProps) {
   const [search, setSearch] = useState("")
   const [kindFilter, setKindFilter] = useState("all")
   const [statusFilter, setStatusFilter] = useState("all")
   const [page, setPage] = useState(1)
 
   const filteredRows = useMemo(() => {
-    const from = fromDate ? startOfDay(fromDate).getTime() : null
-    const to = toDate ? endOfDay(toDate).getTime() : null
     const query = search.trim().toLowerCase()
 
     return rows.filter((row) => {
-      const occurred = new Date(row.occurredAt).getTime()
-      if (from !== null && occurred < from) return false
-      if (to !== null && occurred > to) return false
       if (kindFilter !== "all" && row.kind !== kindFilter) return false
       if (statusFilter !== "all" && row.status !== statusFilter) return false
       if (!query) return true
@@ -72,7 +67,7 @@ export function AdminActivityLogsTable({ rows }: AdminActivityLogsTableProps) {
         row.detail.toLowerCase().includes(query)
       )
     })
-  }, [fromDate, kindFilter, rows, search, statusFilter, toDate])
+  }, [kindFilter, rows, search, statusFilter])
 
   const totalPages = Math.max(1, Math.ceil(filteredRows.length / PAGE_SIZE))
 
@@ -114,7 +109,7 @@ export function AdminActivityLogsTable({ rows }: AdminActivityLogsTableProps) {
                 type="date"
                 value={fromDate}
                 max={toDate || undefined}
-                onChange={(event) => setFromDate(event.target.value)}
+                onChange={(event) => onFromDateChange(event.target.value)}
                 className="block h-9 w-[9.5rem] cursor-pointer px-2"
               />
             </label>
@@ -126,7 +121,7 @@ export function AdminActivityLogsTable({ rows }: AdminActivityLogsTableProps) {
                 type="date"
                 value={toDate}
                 min={fromDate || undefined}
-                onChange={(event) => setToDate(event.target.value)}
+                onChange={(event) => onToDateChange(event.target.value)}
                 className="block h-9 w-[9.5rem] cursor-pointer px-2"
               />
             </label>
@@ -135,10 +130,7 @@ export function AdminActivityLogsTable({ rows }: AdminActivityLogsTableProps) {
               variant="outline"
               size="sm"
               className="h-9 cursor-pointer"
-              onClick={() => {
-                setFromDate(today)
-                setToDate(today)
-              }}
+              onClick={onTodayClick}
             >
               Today
             </Button>
