@@ -1,4 +1,7 @@
-import type { EmployeeAttendanceStats } from "@/data/admin-monitoring"
+import type {
+  CurrentlyOutRow,
+  EmployeeAttendanceStats,
+} from "@/data/admin-monitoring"
 import type {
   AttendanceRank,
   AttendanceRecord,
@@ -7,6 +10,13 @@ import type {
   AttendanceType,
 } from "@/data/attendance"
 import type { AuthSession } from "@/data/auth"
+import type {
+  BorrowStatus,
+  BorrowType,
+  CalculatorRecord,
+  CalculatorSummary,
+  GroupRank,
+} from "@/data/calculator"
 import type { Member } from "@/data/members"
 
 export type ManagedMember = Member & {
@@ -70,6 +80,10 @@ export type AttendanceDateRange = {
 
 export type ScanCreateResult =
   | { ok: true; record: AttendanceRecord }
+  | { ok: false; message: string }
+
+export type BorrowScanCreateResult =
+  | { ok: true; record: CalculatorRecord }
   | { ok: false; message: string }
 
 export type HealthResponse = {
@@ -570,4 +584,186 @@ export async function updateMember(
     )
   }
   return mapManagedMember((await response.json()) as MemberApi)
+}
+
+type BorrowRecordApi = {
+  id: string
+  member_id: string
+  name: string
+  college: string
+  organization: string
+  type: BorrowType
+  scanned_at: string
+  status: BorrowStatus
+}
+
+type BorrowSummaryApi = {
+  out_now: number
+  borrowed_today: number
+  returned_today: number
+  return_rate: number
+}
+
+type BorrowRankApi = {
+  key: string
+  label: string
+  count: number
+}
+
+type CurrentlyOutApi = {
+  member_id: string
+  name: string
+  college: string
+  organization: string
+  borrowed_at: string
+}
+
+function mapBorrowRecord(row: BorrowRecordApi): CalculatorRecord {
+  return {
+    id: row.id,
+    memberId: row.member_id,
+    name: row.name,
+    college: row.college,
+    organization: row.organization,
+    type: row.type,
+    scannedAt: row.scanned_at,
+    status: row.status,
+  }
+}
+
+function mapBorrowSummary(row: BorrowSummaryApi): CalculatorSummary {
+  return {
+    outNow: row.out_now,
+    borrowedToday: row.borrowed_today,
+    returnedToday: row.returned_today,
+    returnRate: row.return_rate,
+  }
+}
+
+function mapBorrowRank(row: BorrowRankApi): GroupRank {
+  return {
+    key: row.key,
+    label: row.label,
+    count: row.count,
+  }
+}
+
+function mapCurrentlyOut(row: CurrentlyOutApi): CurrentlyOutRow {
+  return {
+    memberId: row.member_id,
+    name: row.name,
+    college: row.college,
+    organization: row.organization,
+    borrowedAt: row.borrowed_at,
+  }
+}
+
+export async function fetchBorrowScans(
+  range: AttendanceDateRange = {}
+): Promise<CalculatorRecord[]> {
+  const response = await fetch(
+    `${API_URL}/borrows/scans${attendanceRangeQuery(range)}`
+  )
+  if (!response.ok) {
+    throw new Error(
+      await readErrorMessage(
+        response,
+        `Failed to load borrow scans (${response.status})`
+      )
+    )
+  }
+  const rows = (await response.json()) as BorrowRecordApi[]
+  return rows.map(mapBorrowRecord)
+}
+
+export async function fetchBorrowSummary(): Promise<CalculatorSummary> {
+  const response = await fetch(`${API_URL}/borrows/summary`)
+  if (!response.ok) {
+    throw new Error(
+      await readErrorMessage(
+        response,
+        `Failed to load borrow summary (${response.status})`
+      )
+    )
+  }
+  return mapBorrowSummary((await response.json()) as BorrowSummaryApi)
+}
+
+export async function fetchBorrowRanking(
+  groupBy: "college" | "organization",
+  range: AttendanceDateRange = {},
+  limit = 5
+): Promise<GroupRank[]> {
+  const params = new URLSearchParams()
+  params.set("group_by", groupBy)
+  if (range.from) params.set("from", range.from)
+  if (range.to) params.set("to", range.to)
+  params.set("limit", String(limit))
+  const response = await fetch(
+    `${API_URL}/borrows/ranking?${params.toString()}`
+  )
+  if (!response.ok) {
+    throw new Error(
+      await readErrorMessage(
+        response,
+        `Failed to load borrow ranking (${response.status})`
+      )
+    )
+  }
+  const rows = (await response.json()) as BorrowRankApi[]
+  return rows.map(mapBorrowRank)
+}
+
+export async function createBorrowScan(
+  memberId: string,
+  type: BorrowType
+): Promise<BorrowScanCreateResult> {
+  const trimmed = memberId.trim()
+  if (!trimmed) {
+    return { ok: false, message: "Enter or scan a member ID." }
+  }
+
+  let response: Response
+  try {
+    response = await fetch(`${API_URL}/borrows/scans`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ member_id: trimmed, type }),
+    })
+  } catch {
+    return {
+      ok: false,
+      message: "Cannot reach the server. Is the API running?",
+    }
+  }
+
+  if (!response.ok) {
+    const fallback =
+      response.status === 409
+        ? "That borrow/return is not allowed right now."
+        : response.status === 404
+          ? `Unknown ID “${trimmed}”.`
+          : "Could not record scan."
+    return {
+      ok: false,
+      message: await readErrorMessage(response, fallback),
+    }
+  }
+
+  const row = (await response.json()) as BorrowRecordApi
+  return { ok: true, record: mapBorrowRecord(row) }
+}
+
+export async function fetchBorrowCurrentlyOut(): Promise<CurrentlyOutRow[]> {
+  const response = await apiAuthFetch(`${API_URL}/borrows/currently-out`)
+  if (!response.ok) {
+    throw new Error(
+      await readErrorMessage(
+        response,
+        `Failed to load currently out (${response.status})`
+      )
+    )
+  }
+  const rows = (await response.json()) as CurrentlyOutApi[]
+  return rows.map(mapCurrentlyOut)
 }

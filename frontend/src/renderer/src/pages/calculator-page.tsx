@@ -6,27 +6,43 @@ import { BorrowScanInput } from "@/components/calculator/borrow-scan-input"
 import { CalculatorRanking } from "@/components/calculator/calculator-ranking"
 import { CalculatorSummaryCards } from "@/components/calculator/calculator-summary"
 import { CalculatorTable } from "@/components/calculator/calculator-table"
+import { SCAN_FEEDBACK_MS, toDateInputValue } from "@/data/attendance"
 import {
-  rankByCollege,
-  rankByOrganization,
   SCAN_COOLDOWN_MS,
-  SEED_CALCULATOR,
-  summarizeCalculator,
-  tryRecordBorrowScan,
   type BorrowType,
   type CalculatorRecord,
+  type CalculatorSummary,
+  type GroupRank,
 } from "@/data/calculator"
+import {
+  createBorrowScan,
+  fetchBorrowRanking,
+  fetchBorrowScans,
+  fetchBorrowSummary,
+} from "@/lib/api"
+import { playScanSuccessSound } from "@/lib/scan-sound"
 
 type CalculatorPageProps = {
   onChangeMode: () => void
   onLoginClick: () => void
 }
 
+const EMPTY_SUMMARY: CalculatorSummary = {
+  outNow: 0,
+  borrowedToday: 0,
+  returnedToday: 0,
+  returnRate: 0,
+}
+
 export function CalculatorPage({
   onChangeMode,
   onLoginClick,
 }: CalculatorPageProps) {
-  const [records, setRecords] = useState<CalculatorRecord[]>(SEED_CALCULATOR)
+  const today = toDateInputValue()
+  const [records, setRecords] = useState<CalculatorRecord[]>([])
+  const [summary, setSummary] = useState<CalculatorSummary>(EMPTY_SUMMARY)
+  const [collegeRanks, setCollegeRanks] = useState<GroupRank[]>([])
+  const [organizationRanks, setOrganizationRanks] = useState<GroupRank[]>([])
   const [scanType, setScanType] = useState<BorrowType>("Borrow")
   const [scanValue, setScanValue] = useState("")
   const [message, setMessage] = useState<string | null>(null)
@@ -35,9 +51,12 @@ export function CalculatorPage({
   )
   const [cooldownUntil, setCooldownUntil] = useState(0)
   const [now, setNow] = useState(() => Date.now())
+  const [scanning, setScanning] = useState(false)
 
   const scanTypeRef = useRef(scanType)
   const cooldownUntilRef = useRef(cooldownUntil)
+  const scanningRef = useRef(false)
+  const feedbackTimerRef = useRef<number | null>(null)
 
   useEffect(() => {
     scanTypeRef.current = scanType
@@ -53,36 +72,89 @@ export function CalculatorPage({
     return () => window.clearInterval(id)
   }, [cooldownUntil])
 
+  useEffect(() => {
+    return () => {
+      if (feedbackTimerRef.current !== null) {
+        window.clearTimeout(feedbackTimerRef.current)
+      }
+    }
+  }, [])
+
   const coolingDown = now < cooldownUntil
 
-  const summary = useMemo(() => summarizeCalculator(records), [records])
-  const collegeRanks = useMemo(() => rankByCollege(records), [records])
-  const organizationRanks = useMemo(
-    () => rankByOrganization(records, 5),
-    [records]
+  const showFeedback = useCallback(
+    (text: string, tone: "error" | "success") => {
+      if (feedbackTimerRef.current !== null) {
+        window.clearTimeout(feedbackTimerRef.current)
+      }
+      setMessage(text)
+      setMessageTone(tone)
+      feedbackTimerRef.current = window.setTimeout(() => {
+        setMessage(null)
+        setMessageTone(null)
+        setScanValue("")
+        feedbackTimerRef.current = null
+      }, SCAN_FEEDBACK_MS)
+    },
+    []
   )
 
-  const handleScan = useCallback((rawId: string) => {
-    if (Date.now() < cooldownUntilRef.current) {
-      return
+  const refreshDesk = useCallback(async () => {
+    const range = { from: today, to: today }
+    try {
+      const [nextRecords, nextSummary, nextCollege, nextOrg] = await Promise.all(
+        [
+          fetchBorrowScans(range),
+          fetchBorrowSummary(),
+          fetchBorrowRanking("college", range),
+          fetchBorrowRanking("organization", range, 5),
+        ]
+      )
+      setRecords(nextRecords)
+      setSummary(nextSummary)
+      setCollegeRanks(nextCollege)
+      setOrganizationRanks(nextOrg)
+    } catch (error) {
+      const detail =
+        error instanceof Error ? error.message : "Failed to load borrowing."
+      showFeedback(detail, "error")
     }
+  }, [showFeedback, today])
 
-    setRecords((current) => {
-      const result = tryRecordBorrowScan(rawId, current, scanTypeRef.current)
-      if (!result.ok) {
-        setMessage(result.message)
-        setMessageTone("error")
-        return current
+  useEffect(() => {
+    void refreshDesk()
+  }, [refreshDesk])
+
+  const handleScan = useCallback(
+    async (rawId: string) => {
+      if (Date.now() < cooldownUntilRef.current || scanningRef.current) {
+        return
       }
 
-      setMessage(`Recorded ${result.record.name} · ${result.record.type}`)
-      setMessageTone("success")
-      setScanValue("")
-      setCooldownUntil(Date.now() + SCAN_COOLDOWN_MS)
-      setNow(Date.now())
-      return [result.record, ...current]
-    })
-  }, [])
+      scanningRef.current = true
+      setScanning(true)
+      try {
+        const result = await createBorrowScan(rawId, scanTypeRef.current)
+        if (!result.ok) {
+          showFeedback(result.message, "error")
+          return
+        }
+
+        void playScanSuccessSound()
+        showFeedback(
+          `Recorded ${result.record.name} · ${result.record.type}`,
+          "success"
+        )
+        setCooldownUntil(Date.now() + SCAN_COOLDOWN_MS)
+        setNow(Date.now())
+        await refreshDesk()
+      } finally {
+        scanningRef.current = false
+        setScanning(false)
+      }
+    },
+    [refreshDesk, showFeedback]
+  )
 
   const sessionLabel = useMemo(() => {
     return new Date().toLocaleDateString(undefined, {
@@ -119,7 +191,8 @@ export function CalculatorPage({
 
         <section className="surface-card surface-elevated grid h-auto overflow-hidden md:h-[300px] md:grid-cols-[minmax(280px,380px)_minmax(0,1fr)]">
           <QrScanner
-            paused={coolingDown}
+            paused={coolingDown || scanning}
+            onReading={setScanValue}
             onScan={handleScan}
             className="h-[240px] border-b border-border/80 md:h-full md:border-r md:border-b-0"
           />
@@ -128,7 +201,7 @@ export function CalculatorPage({
             scanType={scanType}
             message={message}
             messageTone={messageTone}
-            coolingDown={coolingDown}
+            coolingDown={coolingDown || scanning}
             onChange={setScanValue}
             onScanTypeChange={setScanType}
             onSubmitId={handleScan}
