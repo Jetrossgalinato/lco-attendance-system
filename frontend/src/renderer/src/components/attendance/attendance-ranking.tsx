@@ -56,7 +56,7 @@ export function AttendanceRanking({ ranks }: AttendanceRankingProps) {
       <div className="shrink-0 border-b border-border/80 px-5 py-4">
         <h2 className="text-lg font-bold tracking-[-0.03em]">Ranking</h2>
         <p className="mt-1 text-xs font-semibold tracking-[0.08em] text-muted-foreground uppercase">
-          Top 5 this session
+          Top 5 this week
         </p>
       </div>
 
