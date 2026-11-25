@@ -1,4 +1,12 @@
-import type { AdminActivityKind, AdminActivityRow } from "@/data/admin"
+import type {
+  AdminActivityKind,
+  AdminActivityRow,
+  AdminDashboardData,
+  AdminKpi,
+  NamedCount,
+  StatusSlice,
+  WeeklyAttendancePoint,
+} from "@/data/admin"
 import type {
   CurrentlyOutRow,
   EmployeeAttendanceStats,
@@ -828,4 +836,58 @@ export async function fetchAdminActivity(
   }
   const rows = (await response.json()) as ActivityItemApi[]
   return rows.map(mapActivityItem)
+}
+
+type DashboardKpiApi = {
+  key: AdminKpi["key"]
+  label: string
+  value: number
+  delta: string
+}
+
+type DashboardApi = {
+  kpis: DashboardKpiApi[]
+  weekly_attendance: WeeklyAttendancePoint[]
+  attendance_status: { name: string; value: number }[]
+  borrows_by_college: NamedCount[]
+  top_organizations: NamedCount[]
+}
+
+const STATUS_FILLS: Record<string, string> = {
+  Present: "#dce87a",
+  Late: "#ef9a9a",
+}
+
+function mapDashboard(row: DashboardApi): AdminDashboardData {
+  return {
+    kpis: row.kpis.map((kpi) => ({
+      key: kpi.key,
+      label: kpi.label,
+      value: kpi.value,
+      delta: kpi.delta,
+    })),
+    weeklyAttendance: row.weekly_attendance,
+    attendanceStatus: row.attendance_status.map(
+      (slice): StatusSlice => ({
+        name: slice.name,
+        value: slice.value,
+        fill: STATUS_FILLS[slice.name] ?? "#dce87a",
+      })
+    ),
+    borrowsByCollege: row.borrows_by_college,
+    topOrganizations: row.top_organizations,
+  }
+}
+
+export async function fetchAdminDashboard(): Promise<AdminDashboardData> {
+  const response = await apiAuthFetch(`${API_URL}/admin/dashboard`)
+  if (!response.ok) {
+    throw new Error(
+      await readErrorMessage(
+        response,
+        `Failed to load dashboard (${response.status})`
+      )
+    )
+  }
+  return mapDashboard((await response.json()) as DashboardApi)
 }
