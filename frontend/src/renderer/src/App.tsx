@@ -1,9 +1,14 @@
 import { useEffect, useState } from "react"
 
 import { AdminShell } from "@/components/admin/admin-shell"
-import { AlertProvider } from "@/components/alert-provider"
+import { AlertProvider, useAlert } from "@/components/alert-provider"
 import type { AuthSession } from "@/data/auth"
-import { clearAuth, fetchMe, getStoredSession } from "@/lib/api"
+import {
+  clearAuth,
+  fetchMe,
+  getStoredSession,
+  onUnauthorized,
+} from "@/lib/api"
 import { AdminActivityLogsPage } from "@/pages/admin-activity-logs-page"
 import { AdminAttendanceMonitoringPage } from "@/pages/admin-attendance-monitoring-page"
 import { AdminBorrowingMonitoringPage } from "@/pages/admin-borrowing-monitoring-page"
@@ -16,7 +21,8 @@ import type { AdminPage } from "@/types/admin"
 
 export type AppView = "attendance" | "calculator" | "login" | "admin"
 
-export default function App() {
+function AppContent() {
+  const { showAlert } = useAlert()
   const [view, setView] = useState<AppView>("attendance")
   const [session, setSession] = useState<AuthSession | null>(null)
   const [adminPage, setAdminPage] = useState<AdminPage>("dashboard")
@@ -24,6 +30,19 @@ export default function App() {
     "attendance"
   )
   const [authReady, setAuthReady] = useState(false)
+
+  useEffect(() => {
+    return onUnauthorized(() => {
+      setSession(null)
+      setAdminPage("dashboard")
+      setView("login")
+      showAlert({
+        tone: "error",
+        title: "Session expired",
+        message: "Please sign in again.",
+      })
+    })
+  }, [showAlert])
 
   useEffect(() => {
     let cancelled = false
@@ -42,8 +61,9 @@ export default function App() {
         setSession(verified)
         setView("admin")
       } else {
-        clearAuth()
+        // Dead/expired token: apiAuthFetch already cleared auth + notified (toast).
         setSession(null)
+        setView("login")
       }
       setAuthReady(true)
     }
@@ -83,7 +103,7 @@ export default function App() {
   }
 
   if (!authReady) {
-    return <AlertProvider>{null}</AlertProvider>
+    return null
   }
 
   let content = (
@@ -134,5 +154,13 @@ export default function App() {
     }
   }
 
-  return <AlertProvider>{content}</AlertProvider>
+  return content
+}
+
+export default function App() {
+  return (
+    <AlertProvider>
+      <AppContent />
+    </AlertProvider>
+  )
 }

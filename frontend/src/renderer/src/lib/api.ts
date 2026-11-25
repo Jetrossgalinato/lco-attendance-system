@@ -141,6 +141,43 @@ export function clearAuth(): void {
   }
 }
 
+export class SessionExpiredError extends Error {
+  constructor(message = "Session expired") {
+    super(message)
+    this.name = "SessionExpiredError"
+  }
+}
+
+type UnauthorizedListener = () => void
+
+const unauthorizedListeners = new Set<UnauthorizedListener>()
+let unauthorizedNotified = false
+
+export function onUnauthorized(listener: UnauthorizedListener): () => void {
+  unauthorizedListeners.add(listener)
+  return () => {
+    unauthorizedListeners.delete(listener)
+  }
+}
+
+function notifyUnauthorized(): void {
+  if (unauthorizedNotified) return
+  unauthorizedNotified = true
+  clearAuth()
+  for (const listener of unauthorizedListeners) {
+    try {
+      listener()
+    } catch {
+      // Listener errors must not break API flow.
+    }
+  }
+}
+
+/** Call after a successful login so the next 401 can notify again. */
+export function resetUnauthorizedGuard(): void {
+  unauthorizedNotified = false
+}
+
 export function authHeaders(
   headers: HeadersInit = {}
 ): Record<string, string> {
@@ -154,6 +191,23 @@ export function authHeaders(
     result[key] = value
   })
   return result
+}
+
+async function apiAuthFetch(
+  input: string,
+  init: RequestInit = {}
+): Promise<Response> {
+  const response = await fetch(input, {
+    ...init,
+    headers: authHeaders(init.headers),
+  })
+
+  if (response.status === 401) {
+    notifyUnauthorized()
+    throw new SessionExpiredError("Session expired — please sign in again.")
+  }
+
+  return response
 }
 
 export async function login(
@@ -209,6 +263,7 @@ export async function login(
     email: data.user.email,
     role: data.user.role,
   }
+  resetUnauthorizedGuard()
   persistAuth(session, data.access_token)
   return { ok: true, session, accessToken: data.access_token }
 }
@@ -218,9 +273,7 @@ export async function fetchMe(): Promise<AuthSession | null> {
   if (!token) return null
 
   try {
-    const response = await fetch(`${API_URL}/auth/me`, {
-      headers: authHeaders(),
-    })
+    const response = await apiAuthFetch(`${API_URL}/auth/me`)
     if (!response.ok) {
       clearAuth()
       return null
@@ -237,7 +290,10 @@ export async function fetchMe(): Promise<AuthSession | null> {
     }
     persistAuth(session, token)
     return session
-  } catch {
+  } catch (error) {
+    if (error instanceof SessionExpiredError) {
+      return null
+    }
     return getStoredSession()
   }
 }
@@ -398,9 +454,8 @@ function mapEmployeeAttendance(
 export async function fetchAttendanceEmployees(
   range: AttendanceDateRange = {}
 ): Promise<EmployeeAttendanceStats[]> {
-  const response = await fetch(
-    `${API_URL}/attendance/employees${attendanceRangeQuery(range)}`,
-    { headers: authHeaders() }
+  const response = await apiAuthFetch(
+    `${API_URL}/attendance/employees${attendanceRangeQuery(range)}`
   )
   if (!response.ok) {
     throw new Error(
@@ -440,9 +495,9 @@ export async function fetchMembers(
   active: "all" | "true" | "false" = "all"
 ): Promise<ManagedMember[]> {
   const params = new URLSearchParams({ active })
-  const response = await fetch(`${API_URL}/members?${params.toString()}`, {
-    headers: authHeaders(),
-  })
+  const response = await apiAuthFetch(
+    `${API_URL}/members?${params.toString()}`
+  )
   if (!response.ok) {
     throw new Error(
       await readErrorMessage(
@@ -456,9 +511,7 @@ export async function fetchMembers(
 }
 
 export async function fetchNextMemberId(): Promise<string> {
-  const response = await fetch(`${API_URL}/members/next-id`, {
-    headers: authHeaders(),
-  })
+  const response = await apiAuthFetch(`${API_URL}/members/next-id`)
   if (!response.ok) {
     throw new Error(
       await readErrorMessage(
@@ -474,11 +527,9 @@ export async function fetchNextMemberId(): Promise<string> {
 export async function createMember(
   payload: MemberWritePayload
 ): Promise<ManagedMember> {
-  const response = await fetch(`${API_URL}/members`, {
+  const response = await apiAuthFetch(`${API_URL}/members`, {
     method: "POST",
-    headers: {
-      ...authHeaders({ "Content-Type": "application/json" }),
-    },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       id: payload.id?.trim() || undefined,
       name: payload.name,
@@ -502,13 +553,11 @@ export async function updateMember(
   memberId: string,
   payload: MemberUpdatePayload
 ): Promise<ManagedMember> {
-  const response = await fetch(
+  const response = await apiAuthFetch(
     `${API_URL}/members/${encodeURIComponent(memberId)}`,
     {
       method: "PATCH",
-      headers: {
-        ...authHeaders({ "Content-Type": "application/json" }),
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     }
   )
