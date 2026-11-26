@@ -245,7 +245,19 @@ def create_scan(
     raw_member_id: str,
     raw_calculator_id: str,
     scan_type: BorrowTypeApi,
+    client_id: str | None = None,
+    scanned_at: datetime | None = None,
 ) -> BorrowRecordOut:
+    normalized_client_id = (client_id or "").strip() or None
+    if normalized_client_id is not None:
+        existing = db.scalar(
+            select(BorrowRecord)
+            .options(joinedload(BorrowRecord.member))
+            .where(BorrowRecord.client_id == normalized_client_id)
+        )
+        if existing is not None:
+            return serialize_record(existing)
+
     member_id = raw_member_id.strip().upper()
     if not member_id:
         raise ValueError("Enter or scan a member ID.")
@@ -295,13 +307,14 @@ def create_scan(
         if db_type == BorrowType.borrow
         else BorrowStatus.returned
     )
-    scanned_at = datetime.now(tz=LOCAL_TZ)
+    event_at = scanned_at.astimezone(LOCAL_TZ) if scanned_at else datetime.now(tz=LOCAL_TZ)
     record = BorrowRecord(
         member_id=member.id,
         calculator_id=calculator.id,
         type=db_type,
         status=status,
-        scanned_at=scanned_at,
+        scanned_at=event_at,
+        client_id=normalized_client_id,
     )
     db.add(record)
     db.commit()

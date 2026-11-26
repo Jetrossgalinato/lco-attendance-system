@@ -171,7 +171,19 @@ def create_scan(
     raw_member_id: str,
     scan_type: AttendanceTypeApi,
     settings: Settings,
+    client_id: str | None = None,
+    scanned_at: datetime | None = None,
 ) -> AttendanceRecordOut:
+    normalized_client_id = (client_id or "").strip() or None
+    if normalized_client_id is not None:
+        existing = db.scalar(
+            select(AttendanceRecord)
+            .options(joinedload(AttendanceRecord.member))
+            .where(AttendanceRecord.client_id == normalized_client_id)
+        )
+        if existing is not None:
+            return serialize_record(existing)
+
     member_id = raw_member_id.strip().upper()
     if not member_id:
         raise ValueError("Enter or scan a member ID.")
@@ -181,8 +193,8 @@ def create_scan(
         raise LookupError(f"Unknown ID “{raw_member_id.strip()}”.")
 
     db_type = api_type_to_db(scan_type)
-    scanned_at = datetime.now(tz=LOCAL_TZ)
-    today = scanned_at.astimezone(LOCAL_TZ).date()
+    event_at = scanned_at.astimezone(LOCAL_TZ) if scanned_at else datetime.now(tz=LOCAL_TZ)
+    today = event_at.astimezone(LOCAL_TZ).date()
     day_start, day_end = parse_day_bounds(today, today)
     assert day_start is not None and day_end is not None
 
@@ -200,8 +212,9 @@ def create_scan(
     record = AttendanceRecord(
         member_id=member.id,
         type=db_type,
-        status=attendance_status_for(scanned_at, settings),
-        scanned_at=scanned_at,
+        status=attendance_status_for(event_at, settings),
+        scanned_at=event_at,
+        client_id=normalized_client_id,
     )
     db.add(record)
     db.commit()
