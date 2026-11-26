@@ -18,6 +18,8 @@ class AttendanceStatusApi(str, Enum):
 class ScanCreateRequest(BaseModel):
     member_id: str = Field(min_length=1)
     type: AttendanceTypeApi
+    client_id: str | None = Field(default=None, max_length=64)
+    scanned_at: datetime | None = None
 
 
 class AttendanceRecordOut(BaseModel):

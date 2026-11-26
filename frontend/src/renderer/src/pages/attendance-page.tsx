@@ -6,6 +6,7 @@ import { AttendanceSummaryCards } from "@/components/attendance/attendance-summa
 import { AttendanceTable } from "@/components/attendance/attendance-table"
 import { IdScanInput } from "@/components/attendance/id-scan-input"
 import { QrScanner } from "@/components/attendance/qr-scanner"
+import { DeskSyncChip } from "@/components/desk-sync-chip"
 import {
   SCAN_COOLDOWN_MS,
   SCAN_FEEDBACK_MS,
@@ -17,11 +18,22 @@ import {
   type AttendanceType,
 } from "@/data/attendance"
 import {
-  createAttendanceScan,
   fetchAttendanceRanking,
   fetchAttendanceScans,
   fetchAttendanceSummary,
 } from "@/lib/api"
+import {
+  drainOutbox,
+  ensureDeskSnapshot,
+  getDeskSyncStatus,
+  loadMergedAttendance,
+  rankAttendanceLocal,
+  recordAttendanceScan,
+  subscribeConnectivity,
+  subscribeSyncStatus,
+  summarizeAttendanceLocal,
+  type DeskSyncStatus,
+} from "@/lib/offline"
 import { playScanSuccessSound } from "@/lib/scan-sound"
 
 type AttendancePageProps = {
@@ -34,6 +46,14 @@ const EMPTY_SUMMARY: AttendanceSummary = {
   late: 0,
   total: 0,
   rate: 0,
+}
+
+const EMPTY_SYNC: DeskSyncStatus = {
+  online: true,
+  pendingCount: 0,
+  syncing: false,
+  lastError: null,
+  hasSnapshot: false,
 }
 
 export function AttendancePage({
@@ -55,6 +75,7 @@ export function AttendancePage({
   const [cooldownUntil, setCooldownUntil] = useState(0)
   const [now, setNow] = useState(() => Date.now())
   const [scanning, setScanning] = useState(false)
+  const [syncStatus, setSyncStatus] = useState<DeskSyncStatus>(EMPTY_SYNC)
 
   const scanTypeRef = useRef(scanType)
   const cooldownUntilRef = useRef(cooldownUntil)
@@ -83,6 +104,28 @@ export function AttendancePage({
     }
   }, [])
 
+  const refreshSyncStatus = useCallback(async () => {
+    setSyncStatus(await getDeskSyncStatus())
+  }, [])
+
+  useEffect(() => {
+    void ensureDeskSnapshot().then(() => refreshSyncStatus())
+    const unsubOnline = subscribeConnectivity(() => {
+      void drainOutbox().then(() => refreshSyncStatus())
+    })
+    const unsubSync = subscribeSyncStatus(() => {
+      void refreshSyncStatus()
+    })
+    const interval = window.setInterval(() => {
+      void drainOutbox().then(() => refreshSyncStatus())
+    }, 30_000)
+    return () => {
+      unsubOnline()
+      unsubSync()
+      window.clearInterval(interval)
+    }
+  }, [refreshSyncStatus])
+
   const coolingDown = now < cooldownUntil
 
   const showFeedback = useCallback(
@@ -102,24 +145,30 @@ export function AttendancePage({
     []
   )
 
-  const refreshDesk = useCallback(async (from: string, to: string) => {
-    const range = { from, to }
-    const rankingRange = weekToDateRange()
-    try {
-      const [nextRecords, nextSummary, nextRanks] = await Promise.all([
-        fetchAttendanceScans(range),
-        fetchAttendanceSummary(range),
-        fetchAttendanceRanking(rankingRange, 5),
-      ])
-      setRecords(nextRecords)
-      setSummary(nextSummary)
-      setRanks(nextRanks)
-    } catch (error) {
-      const detail =
-        error instanceof Error ? error.message : "Failed to load attendance."
-      showFeedback(detail, "error")
-    }
-  }, [showFeedback])
+  const refreshDesk = useCallback(
+    async (from: string, to: string) => {
+      const range = { from, to }
+      const rankingRange = weekToDateRange()
+      try {
+        const [nextRecords, nextSummary, nextRanks] = await Promise.all([
+          fetchAttendanceScans(range),
+          fetchAttendanceSummary(range),
+          fetchAttendanceRanking(rankingRange, 5),
+        ])
+        const merged = await loadMergedAttendance(nextRecords)
+        setRecords(merged)
+        setSummary(nextSummary)
+        setRanks(nextRanks)
+      } catch {
+        const merged = await loadMergedAttendance([])
+        setRecords(merged)
+        setSummary(summarizeAttendanceLocal(merged))
+        setRanks(rankAttendanceLocal(merged, 5))
+      }
+      await refreshSyncStatus()
+    },
+    [refreshSyncStatus]
+  )
 
   useEffect(() => {
     void refreshDesk(fromDate, toDate)
@@ -134,7 +183,7 @@ export function AttendancePage({
       scanningRef.current = true
       setScanning(true)
       try {
-        const result = await createAttendanceScan(rawId, scanTypeRef.current)
+        const result = await recordAttendanceScan(rawId, scanTypeRef.current)
         if (!result.ok) {
           showFeedback(result.message, "error")
           return
@@ -142,7 +191,9 @@ export function AttendancePage({
 
         void playScanSuccessSound()
         showFeedback(
-          `Recorded ${result.record.name} · ${result.record.type}`,
+          result.offline
+            ? `Saved offline · ${result.record.name} · ${result.record.type}`
+            : `Recorded ${result.record.name} · ${result.record.type}`,
           "success"
         )
         setCooldownUntil(Date.now() + SCAN_COOLDOWN_MS)
@@ -180,6 +231,7 @@ export function AttendancePage({
               QR camera stays on — choose Time In or Time Out, then scan or type
               an ID.
             </p>
+            <DeskSyncChip status={syncStatus} />
           </div>
           <AppHeaderActions
             onChangeMode={onChangeMode}

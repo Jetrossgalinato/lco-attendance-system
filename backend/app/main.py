@@ -11,6 +11,7 @@ from app.api.routes import (
     dashboard,
     health,
     members,
+    sync,
 )
 from app.core.config import get_settings
 from app.db.session import SessionLocal
@@ -34,6 +35,7 @@ app.add_middleware(
 )
 
 app.include_router(health.router)
+app.include_router(sync.router)
 app.include_router(auth.router)
 app.include_router(attendance.router)
 app.include_router(borrows.router)

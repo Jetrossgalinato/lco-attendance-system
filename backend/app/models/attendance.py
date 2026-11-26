@@ -47,5 +47,10 @@ class AttendanceRecord(Base):
         server_default=func.now(),
         nullable=False,
     )
+    client_id: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+        unique=True,
+    )
 
     member = relationship("Member", back_populates="attendance_records")

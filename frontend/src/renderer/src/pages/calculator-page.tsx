@@ -9,6 +9,7 @@ import {
 import { CalculatorRanking } from "@/components/calculator/calculator-ranking"
 import { CalculatorSummaryCards } from "@/components/calculator/calculator-summary"
 import { CalculatorTable } from "@/components/calculator/calculator-table"
+import { DeskSyncChip } from "@/components/desk-sync-chip"
 import { SCAN_FEEDBACK_MS, toDateInputValue, weekToDateRange } from "@/data/attendance"
 import {
   SCAN_COOLDOWN_MS,
@@ -18,11 +19,23 @@ import {
   type GroupRank,
 } from "@/data/calculator"
 import {
-  createBorrowScan,
   fetchBorrowRanking,
   fetchBorrowScans,
   fetchBorrowSummary,
 } from "@/lib/api"
+import {
+  drainOutbox,
+  ensureDeskSnapshot,
+  getDeskSyncStatus,
+  loadMergedBorrows,
+  rankBorrowsByCollegeLocal,
+  rankBorrowsByOrgLocal,
+  recordBorrowScan,
+  subscribeConnectivity,
+  subscribeSyncStatus,
+  summarizeBorrowsLocal,
+  type DeskSyncStatus,
+} from "@/lib/offline"
 import { playScanSuccessSound } from "@/lib/scan-sound"
 
 type CalculatorPageProps = {
@@ -35,6 +48,14 @@ const EMPTY_SUMMARY: CalculatorSummary = {
   borrowedToday: 0,
   returnedToday: 0,
   returnRate: 0,
+}
+
+const EMPTY_SYNC: DeskSyncStatus = {
+  online: true,
+  pendingCount: 0,
+  syncing: false,
+  lastError: null,
+  hasSnapshot: false,
 }
 
 export function CalculatorPage({
@@ -57,6 +78,7 @@ export function CalculatorPage({
   const [cooldownUntil, setCooldownUntil] = useState(0)
   const [now, setNow] = useState(() => Date.now())
   const [scanning, setScanning] = useState(false)
+  const [syncStatus, setSyncStatus] = useState<DeskSyncStatus>(EMPTY_SYNC)
 
   const scanTypeRef = useRef(scanType)
   const scanStepRef = useRef(scanStep)
@@ -95,6 +117,28 @@ export function CalculatorPage({
     }
   }, [])
 
+  const refreshSyncStatus = useCallback(async () => {
+    setSyncStatus(await getDeskSyncStatus())
+  }, [])
+
+  useEffect(() => {
+    void ensureDeskSnapshot().then(() => refreshSyncStatus())
+    const unsubOnline = subscribeConnectivity(() => {
+      void drainOutbox().then(() => refreshSyncStatus())
+    })
+    const unsubSync = subscribeSyncStatus(() => {
+      void refreshSyncStatus()
+    })
+    const interval = window.setInterval(() => {
+      void drainOutbox().then(() => refreshSyncStatus())
+    }, 30_000)
+    return () => {
+      unsubOnline()
+      unsubSync()
+      window.clearInterval(interval)
+    }
+  }, [refreshSyncStatus])
+
   const coolingDown = now < cooldownUntil
 
   const resetPendingMember = useCallback(() => {
@@ -132,16 +176,20 @@ export function CalculatorPage({
           fetchBorrowRanking("organization", rankingRange, 5),
         ]
       )
-      setRecords(nextRecords)
+      const merged = await loadMergedBorrows(nextRecords)
+      setRecords(merged)
       setSummary(nextSummary)
       setCollegeRanks(nextCollege)
       setOrganizationRanks(nextOrg)
-    } catch (error) {
-      const detail =
-        error instanceof Error ? error.message : "Failed to load borrowing."
-      showFeedback(detail, "error")
+    } catch {
+      const merged = await loadMergedBorrows([])
+      setRecords(merged)
+      setSummary(await summarizeBorrowsLocal(merged))
+      setCollegeRanks(rankBorrowsByCollegeLocal(merged))
+      setOrganizationRanks(rankBorrowsByOrgLocal(merged, 5))
     }
-  }, [showFeedback, today])
+    await refreshSyncStatus()
+  }, [refreshSyncStatus, today])
 
   useEffect(() => {
     void refreshDesk()
@@ -193,7 +241,7 @@ export function CalculatorPage({
       scanningRef.current = true
       setScanning(true)
       try {
-        const result = await createBorrowScan(
+        const result = await recordBorrowScan(
           memberId,
           scanTypeRef.current,
           trimmed
@@ -206,7 +254,9 @@ export function CalculatorPage({
 
         void playScanSuccessSound()
         showFeedback(
-          `Recorded ${result.record.name} · ${result.record.type} · ${result.record.calculatorId}`,
+          result.offline
+            ? `Saved offline · ${result.record.name} · ${result.record.type} · ${result.record.calculatorId}`
+            : `Recorded ${result.record.name} · ${result.record.type} · ${result.record.calculatorId}`,
           "success"
         )
         resetPendingMember()
@@ -245,6 +295,7 @@ export function CalculatorPage({
               QR camera stays on — choose Borrow or Return, scan the member ID,
               then the calculator ID.
             </p>
+            <DeskSyncChip status={syncStatus} />
           </div>
           <AppHeaderActions
             onChangeMode={onChangeMode}
