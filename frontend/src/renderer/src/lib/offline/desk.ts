@@ -8,7 +8,7 @@ import {
 } from "@/lib/api"
 
 import { applyAttendanceOffline, applyBorrowOffline } from "./apply"
-import { probeApiHealth } from "./connectivity"
+import { getLastOnline, probeApiHealth } from "./connectivity"
 import { getLocalAttendance, getLocalBorrows, getOutboxItems } from "./db"
 import { hasDeskSnapshot, pullDeskSnapshotIfOnline } from "./snapshot"
 import { drainOutbox } from "./sync-worker"
@@ -24,8 +24,10 @@ export async function getDeskSyncStatus(): Promise<DeskSyncStatus> {
     (item) => item.status === "pending" || item.status === "syncing"
   ).length
   const failed = outbox.find((item) => item.status === "failed")
+  // Prefer cached probe so desk refresh does not spam /health.
+  void probeApiHealth()
   return {
-    online: await probeApiHealth(),
+    online: getLastOnline(),
     pendingCount,
     syncing: outbox.some((item) => item.status === "syncing"),
     lastError: failed?.lastError ?? null,
@@ -138,6 +140,29 @@ export async function loadMergedBorrows(
 ): Promise<LocalBorrowRecord[]> {
   const local = await getLocalBorrows()
   return mergeBorrowRecords(server, local)
+}
+
+const DESK_FETCH_TIMEOUT_MS = 8000
+
+export function withTimeout<T>(
+  promise: Promise<T>,
+  ms: number = DESK_FETCH_TIMEOUT_MS
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = window.setTimeout(() => {
+      reject(new Error("Request timed out"))
+    }, ms)
+    promise.then(
+      (value) => {
+        window.clearTimeout(timer)
+        resolve(value)
+      },
+      (error: unknown) => {
+        window.clearTimeout(timer)
+        reject(error)
+      }
+    )
+  })
 }
 
 export { drainOutbox, pullDeskSnapshotIfOnline, getLocalAttendance, getLocalBorrows }

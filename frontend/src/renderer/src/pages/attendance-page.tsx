@@ -27,11 +27,13 @@ import {
   ensureDeskSnapshot,
   getDeskSyncStatus,
   loadMergedAttendance,
+  mergeAttendanceRecords,
   rankAttendanceLocal,
   recordAttendanceScan,
   subscribeConnectivity,
   subscribeSyncStatus,
   summarizeAttendanceLocal,
+  withTimeout,
   type DeskSyncStatus,
 } from "@/lib/offline"
 import { playScanSuccessSound } from "@/lib/scan-sound"
@@ -81,6 +83,7 @@ export function AttendancePage({
   const cooldownUntilRef = useRef(cooldownUntil)
   const scanningRef = useRef(false)
   const feedbackTimerRef = useRef<number | null>(null)
+  const recordsRef = useRef(records)
 
   useEffect(() => {
     scanTypeRef.current = scanType
@@ -89,6 +92,10 @@ export function AttendancePage({
   useEffect(() => {
     cooldownUntilRef.current = cooldownUntil
   }, [cooldownUntil])
+
+  useEffect(() => {
+    recordsRef.current = records
+  }, [records])
 
   useEffect(() => {
     if (cooldownUntil <= Date.now()) return
@@ -107,24 +114,6 @@ export function AttendancePage({
   const refreshSyncStatus = useCallback(async () => {
     setSyncStatus(await getDeskSyncStatus())
   }, [])
-
-  useEffect(() => {
-    void ensureDeskSnapshot().then(() => refreshSyncStatus())
-    const unsubOnline = subscribeConnectivity(() => {
-      void drainOutbox().then(() => refreshSyncStatus())
-    })
-    const unsubSync = subscribeSyncStatus(() => {
-      void refreshSyncStatus()
-    })
-    const interval = window.setInterval(() => {
-      void drainOutbox().then(() => refreshSyncStatus())
-    }, 30_000)
-    return () => {
-      unsubOnline()
-      unsubSync()
-      window.clearInterval(interval)
-    }
-  }, [refreshSyncStatus])
 
   const coolingDown = now < cooldownUntil
 
@@ -145,34 +134,59 @@ export function AttendancePage({
     []
   )
 
+  const applyOfflineDeskState = useCallback(async (nextRecords: AttendanceRecord[]) => {
+    setRecords(nextRecords)
+    setSummary(summarizeAttendanceLocal(nextRecords))
+    setRanks(rankAttendanceLocal(nextRecords, 5))
+    await refreshSyncStatus()
+  }, [refreshSyncStatus])
+
   const refreshDesk = useCallback(
     async (from: string, to: string) => {
       const range = { from, to }
       const rankingRange = weekToDateRange()
       try {
-        const [nextRecords, nextSummary, nextRanks] = await Promise.all([
-          fetchAttendanceScans(range),
-          fetchAttendanceSummary(range),
-          fetchAttendanceRanking(rankingRange, 5),
-        ])
+        const [nextRecords, nextSummary, nextRanks] = await withTimeout(
+          Promise.all([
+            fetchAttendanceScans(range),
+            fetchAttendanceSummary(range),
+            fetchAttendanceRanking(rankingRange, 5),
+          ])
+        )
         const merged = await loadMergedAttendance(nextRecords)
         setRecords(merged)
         setSummary(nextSummary)
         setRanks(nextRanks)
       } catch {
-        const merged = await loadMergedAttendance([])
-        setRecords(merged)
-        setSummary(summarizeAttendanceLocal(merged))
-        setRanks(rankAttendanceLocal(merged, 5))
+        const merged = await loadMergedAttendance(recordsRef.current)
+        await applyOfflineDeskState(merged)
+        return
       }
       await refreshSyncStatus()
     },
-    [refreshSyncStatus]
+    [applyOfflineDeskState, refreshSyncStatus]
   )
 
   useEffect(() => {
-    void refreshDesk(fromDate, toDate)
-  }, [fromDate, toDate, refreshDesk])
+    void ensureDeskSnapshot().then(async () => {
+      await drainOutbox()
+      await refreshDesk(fromDate, toDate)
+    })
+    const unsubOnline = subscribeConnectivity(() => {
+      void drainOutbox().then(() => refreshDesk(fromDate, toDate))
+    })
+    const unsubSync = subscribeSyncStatus(() => {
+      void refreshSyncStatus()
+    })
+    const interval = window.setInterval(() => {
+      void drainOutbox().then(() => refreshDesk(fromDate, toDate))
+    }, 30_000)
+    return () => {
+      unsubOnline()
+      unsubSync()
+      window.clearInterval(interval)
+    }
+  }, [fromDate, toDate, refreshDesk, refreshSyncStatus])
 
   const handleScan = useCallback(
     async (rawId: string) => {
@@ -198,13 +212,27 @@ export function AttendancePage({
         )
         setCooldownUntil(Date.now() + SCAN_COOLDOWN_MS)
         setNow(Date.now())
-        await refreshDesk(fromDate, toDate)
+
+        if (result.offline) {
+          const merged = mergeAttendanceRecords(recordsRef.current, [
+            result.record,
+          ])
+          await applyOfflineDeskState(merged)
+        }
+
+        void refreshDesk(fromDate, toDate)
       } finally {
         scanningRef.current = false
         setScanning(false)
       }
     },
-    [fromDate, refreshDesk, showFeedback, toDate]
+    [
+      applyOfflineDeskState,
+      fromDate,
+      refreshDesk,
+      showFeedback,
+      toDate,
+    ]
   )
 
   const sessionLabel = useMemo(() => {

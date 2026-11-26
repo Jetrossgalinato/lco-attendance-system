@@ -1,7 +1,4 @@
-import {
-  createAttendanceScan,
-  createBorrowScan,
-} from "@/lib/api"
+import { createAttendanceScan, createBorrowScan } from "@/lib/api"
 
 import { probeApiHealth } from "./connectivity"
 import {
@@ -36,8 +33,30 @@ function emitStatus() {
   for (const listener of statusListeners) listener()
 }
 
-async function syncOne(item: OutboxItem): Promise<"ok" | "conflict" | "network"> {
-  const next: OutboxItem = { ...item, status: "syncing" }
+/** Server already has equivalent state — safe to drop the outbox item. */
+function isAlreadyAppliedConflict(message: string): boolean {
+  const lower = message.toLowerCase()
+  return (
+    lower.includes("already has") ||
+    lower.includes("already checked out") ||
+    lower.includes("already recorded") ||
+    lower.includes("has nothing to return")
+  )
+}
+
+async function markResolved(item: OutboxItem): Promise<void> {
+  await deleteOutboxItem(item.id)
+  if (item.kind === "attendance") {
+    await deleteLocalAttendance(item.id)
+  } else {
+    await deleteLocalBorrow(item.id)
+  }
+}
+
+async function syncOne(
+  item: OutboxItem
+): Promise<"ok" | "conflict" | "network"> {
+  const next: OutboxItem = { ...item, status: "syncing", lastError: undefined }
   await putOutboxItem(next)
 
   if (item.kind === "attendance") {
@@ -47,8 +66,7 @@ async function syncOne(item: OutboxItem): Promise<"ok" | "conflict" | "network">
       scannedAt: payload.scannedAt,
     })
     if (result.ok) {
-      await deleteOutboxItem(item.id)
-      await deleteLocalAttendance(item.id)
+      await markResolved(item)
       return "ok"
     }
     if (result.network) {
@@ -58,6 +76,10 @@ async function syncOne(item: OutboxItem): Promise<"ok" | "conflict" | "network">
         lastError: result.message,
       })
       return "network"
+    }
+    if (isAlreadyAppliedConflict(result.message)) {
+      await markResolved(item)
+      return "ok"
     }
     await putOutboxItem({
       ...item,
@@ -75,8 +97,7 @@ async function syncOne(item: OutboxItem): Promise<"ok" | "conflict" | "network">
     { clientId: item.id, scannedAt: payload.scannedAt }
   )
   if (result.ok) {
-    await deleteOutboxItem(item.id)
-    await deleteLocalBorrow(item.id)
+    await markResolved(item)
     return "ok"
   }
   if (result.network) {
@@ -86,6 +107,10 @@ async function syncOne(item: OutboxItem): Promise<"ok" | "conflict" | "network">
       lastError: result.message,
     })
     return "network"
+  }
+  if (isAlreadyAppliedConflict(result.message)) {
+    await markResolved(item)
+    return "ok"
   }
   await putOutboxItem({
     ...item,
@@ -117,7 +142,15 @@ export async function drainOutbox(): Promise<{
     }
 
     const items = await getOutboxItems()
+    // Retry previously failed items too (they used to stick forever).
     for (const item of items) {
+      if (item.status === "failed") {
+        await putOutboxItem({ ...item, status: "pending", lastError: undefined })
+      }
+    }
+
+    const queue = await getOutboxItems()
+    for (const item of queue) {
       if (item.status === "failed") continue
       const outcome = await syncOne(item)
       if (outcome === "ok") {
@@ -139,12 +172,14 @@ export async function drainOutbox(): Promise<{
       }
     }
 
-    // Drop successfully synced locals already deleted; clear leftover locals if outbox empty of pending
     const remaining = await getOutboxItems()
-    const pendingLeft = remaining.some(
-      (row) => row.status === "pending" || row.status === "syncing"
+    const unfinished = remaining.some(
+      (row) =>
+        row.status === "pending" ||
+        row.status === "syncing" ||
+        row.status === "failed"
     )
-    if (!pendingLeft) {
+    if (!unfinished) {
       await clearLocalAttendance()
       await clearLocalBorrows()
     }
@@ -154,4 +189,14 @@ export async function drainOutbox(): Promise<{
   }
 
   return { synced, failed, errors }
+}
+
+/** Drop all failed outbox rows (user-facing dismiss / cleanup). */
+export async function clearFailedOutbox(): Promise<void> {
+  const items = await getOutboxItems()
+  for (const item of items) {
+    if (item.status !== "failed") continue
+    await markResolved(item)
+  }
+  emitStatus()
 }

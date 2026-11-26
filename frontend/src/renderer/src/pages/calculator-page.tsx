@@ -28,12 +28,14 @@ import {
   ensureDeskSnapshot,
   getDeskSyncStatus,
   loadMergedBorrows,
+  mergeBorrowRecords,
   rankBorrowsByCollegeLocal,
   rankBorrowsByOrgLocal,
   recordBorrowScan,
   subscribeConnectivity,
   subscribeSyncStatus,
   summarizeBorrowsLocal,
+  withTimeout,
   type DeskSyncStatus,
 } from "@/lib/offline"
 import { playScanSuccessSound } from "@/lib/scan-sound"
@@ -86,6 +88,7 @@ export function CalculatorPage({
   const cooldownUntilRef = useRef(cooldownUntil)
   const scanningRef = useRef(false)
   const feedbackTimerRef = useRef<number | null>(null)
+  const recordsRef = useRef(records)
 
   useEffect(() => {
     scanTypeRef.current = scanType
@@ -104,6 +107,10 @@ export function CalculatorPage({
   }, [cooldownUntil])
 
   useEffect(() => {
+    recordsRef.current = records
+  }, [records])
+
+  useEffect(() => {
     if (cooldownUntil <= Date.now()) return
     const id = window.setInterval(() => setNow(Date.now()), 200)
     return () => window.clearInterval(id)
@@ -120,24 +127,6 @@ export function CalculatorPage({
   const refreshSyncStatus = useCallback(async () => {
     setSyncStatus(await getDeskSyncStatus())
   }, [])
-
-  useEffect(() => {
-    void ensureDeskSnapshot().then(() => refreshSyncStatus())
-    const unsubOnline = subscribeConnectivity(() => {
-      void drainOutbox().then(() => refreshSyncStatus())
-    })
-    const unsubSync = subscribeSyncStatus(() => {
-      void refreshSyncStatus()
-    })
-    const interval = window.setInterval(() => {
-      void drainOutbox().then(() => refreshSyncStatus())
-    }, 30_000)
-    return () => {
-      unsubOnline()
-      unsubSync()
-      window.clearInterval(interval)
-    }
-  }, [refreshSyncStatus])
 
   const coolingDown = now < cooldownUntil
 
@@ -164,17 +153,28 @@ export function CalculatorPage({
     []
   )
 
+  const applyOfflineDeskState = useCallback(
+    async (nextRecords: CalculatorRecord[]) => {
+      setRecords(nextRecords)
+      setSummary(await summarizeBorrowsLocal(nextRecords))
+      setCollegeRanks(rankBorrowsByCollegeLocal(nextRecords))
+      setOrganizationRanks(rankBorrowsByOrgLocal(nextRecords, 5))
+      await refreshSyncStatus()
+    },
+    [refreshSyncStatus]
+  )
+
   const refreshDesk = useCallback(async () => {
     const liveRange = { from: today, to: today }
     const rankingRange = weekToDateRange()
     try {
-      const [nextRecords, nextSummary, nextCollege, nextOrg] = await Promise.all(
-        [
+      const [nextRecords, nextSummary, nextCollege, nextOrg] = await withTimeout(
+        Promise.all([
           fetchBorrowScans(liveRange),
           fetchBorrowSummary(),
           fetchBorrowRanking("college", rankingRange),
           fetchBorrowRanking("organization", rankingRange, 5),
-        ]
+        ])
       )
       const merged = await loadMergedBorrows(nextRecords)
       setRecords(merged)
@@ -182,18 +182,33 @@ export function CalculatorPage({
       setCollegeRanks(nextCollege)
       setOrganizationRanks(nextOrg)
     } catch {
-      const merged = await loadMergedBorrows([])
-      setRecords(merged)
-      setSummary(await summarizeBorrowsLocal(merged))
-      setCollegeRanks(rankBorrowsByCollegeLocal(merged))
-      setOrganizationRanks(rankBorrowsByOrgLocal(merged, 5))
+      const merged = await loadMergedBorrows(recordsRef.current)
+      await applyOfflineDeskState(merged)
+      return
     }
     await refreshSyncStatus()
-  }, [refreshSyncStatus, today])
+  }, [applyOfflineDeskState, refreshSyncStatus, today])
 
   useEffect(() => {
-    void refreshDesk()
-  }, [refreshDesk])
+    void ensureDeskSnapshot().then(async () => {
+      await drainOutbox()
+      await refreshDesk()
+    })
+    const unsubOnline = subscribeConnectivity(() => {
+      void drainOutbox().then(() => refreshDesk())
+    })
+    const unsubSync = subscribeSyncStatus(() => {
+      void refreshSyncStatus()
+    })
+    const interval = window.setInterval(() => {
+      void drainOutbox().then(() => refreshDesk())
+    }, 30_000)
+    return () => {
+      unsubOnline()
+      unsubSync()
+      window.clearInterval(interval)
+    }
+  }, [refreshDesk, refreshSyncStatus])
 
   const handleScanTypeChange = useCallback(
     (type: BorrowType) => {
@@ -262,13 +277,19 @@ export function CalculatorPage({
         resetPendingMember()
         setCooldownUntil(Date.now() + SCAN_COOLDOWN_MS)
         setNow(Date.now())
-        await refreshDesk()
+
+        if (result.offline) {
+          const merged = mergeBorrowRecords(recordsRef.current, [result.record])
+          await applyOfflineDeskState(merged)
+        }
+
+        void refreshDesk()
       } finally {
         scanningRef.current = false
         setScanning(false)
       }
     },
-    [refreshDesk, resetPendingMember, showFeedback]
+    [applyOfflineDeskState, refreshDesk, resetPendingMember, showFeedback]
   )
 
   const sessionLabel = useMemo(() => {

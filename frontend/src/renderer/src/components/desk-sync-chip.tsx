@@ -19,7 +19,7 @@ export function DeskSyncChip({ status, className }: DeskSyncChipProps) {
   } else if (status.pendingCount > 0) {
     label = `Online · ${status.pendingCount} pending`
   } else if (status.lastError) {
-    label = "Online · sync conflict"
+    label = "Online · sync issue"
   }
 
   return (

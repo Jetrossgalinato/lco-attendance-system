@@ -4,15 +4,22 @@ export {
   getDeskSyncStatus,
   loadMergedAttendance,
   loadMergedBorrows,
+  mergeAttendanceRecords,
+  mergeBorrowRecords,
   recordAttendanceScan,
   recordBorrowScan,
+  withTimeout,
 } from "./desk"
 export {
   getLastOnline,
   probeApiHealth,
   subscribeConnectivity,
 } from "./connectivity"
-export { subscribeSyncStatus, isSyncing } from "./sync-worker"
+export {
+  clearFailedOutbox,
+  isSyncing,
+  subscribeSyncStatus,
+} from "./sync-worker"
 export type { DeskSyncStatus } from "./types"
 export {
   rankAttendanceLocal,
