@@ -49,7 +49,7 @@ export type MemberUpdatePayload = {
   is_active?: boolean
 }
 
-const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000"
+export const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000"
 const TOKEN_KEY = "lco-access-token"
 const SESSION_KEY = "lco-auth-session"
 
@@ -89,11 +89,16 @@ export type AttendanceDateRange = {
 
 export type ScanCreateResult =
   | { ok: true; record: AttendanceRecord }
-  | { ok: false; message: string }
+  | { ok: false; message: string; network?: boolean }
 
 export type BorrowScanCreateResult =
   | { ok: true; record: CalculatorRecord }
-  | { ok: false; message: string }
+  | { ok: false; message: string; network?: boolean }
+
+export type DeskScanOptions = {
+  clientId?: string
+  scannedAt?: string
+}
 
 export type HealthResponse = {
   status: string
@@ -420,7 +425,8 @@ export async function fetchAttendanceRanking(
 
 export async function createAttendanceScan(
   memberId: string,
-  type: AttendanceType
+  type: AttendanceType,
+  options: DeskScanOptions = {}
 ): Promise<ScanCreateResult> {
   const trimmed = memberId.trim()
   if (!trimmed) {
@@ -432,11 +438,17 @@ export async function createAttendanceScan(
     response = await fetch(`${API_URL}/attendance/scans`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ member_id: trimmed, type }),
+      body: JSON.stringify({
+        member_id: trimmed,
+        type,
+        client_id: options.clientId,
+        scanned_at: options.scannedAt,
+      }),
     })
   } catch {
     return {
       ok: false,
+      network: true,
       message: "Cannot reach the server. Is the API running?",
     }
   }
@@ -732,7 +744,8 @@ export async function fetchBorrowRanking(
 export async function createBorrowScan(
   memberId: string,
   type: BorrowType,
-  calculatorId: string
+  calculatorId: string,
+  options: DeskScanOptions = {}
 ): Promise<BorrowScanCreateResult> {
   const trimmedMember = memberId.trim()
   if (!trimmedMember) {
@@ -752,11 +765,14 @@ export async function createBorrowScan(
         member_id: trimmedMember,
         calculator_id: trimmedCalculator,
         type,
+        client_id: options.clientId,
+        scanned_at: options.scannedAt,
       }),
     })
   } catch {
     return {
       ok: false,
+      network: true,
       message: "Cannot reach the server. Is the API running?",
     }
   }

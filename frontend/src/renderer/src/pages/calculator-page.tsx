@@ -9,6 +9,7 @@ import {
 import { CalculatorRanking } from "@/components/calculator/calculator-ranking"
 import { CalculatorSummaryCards } from "@/components/calculator/calculator-summary"
 import { CalculatorTable } from "@/components/calculator/calculator-table"
+import { DeskSyncChip } from "@/components/desk-sync-chip"
 import { SCAN_FEEDBACK_MS, toDateInputValue, weekToDateRange } from "@/data/attendance"
 import {
   SCAN_COOLDOWN_MS,
@@ -18,11 +19,25 @@ import {
   type GroupRank,
 } from "@/data/calculator"
 import {
-  createBorrowScan,
   fetchBorrowRanking,
   fetchBorrowScans,
   fetchBorrowSummary,
 } from "@/lib/api"
+import {
+  drainOutbox,
+  ensureDeskSnapshot,
+  getDeskSyncStatus,
+  loadMergedBorrows,
+  mergeBorrowRecords,
+  rankBorrowsByCollegeLocal,
+  rankBorrowsByOrgLocal,
+  recordBorrowScan,
+  subscribeConnectivity,
+  subscribeSyncStatus,
+  summarizeBorrowsLocal,
+  withTimeout,
+  type DeskSyncStatus,
+} from "@/lib/offline"
 import { playScanSuccessSound } from "@/lib/scan-sound"
 
 type CalculatorPageProps = {
@@ -35,6 +50,14 @@ const EMPTY_SUMMARY: CalculatorSummary = {
   borrowedToday: 0,
   returnedToday: 0,
   returnRate: 0,
+}
+
+const EMPTY_SYNC: DeskSyncStatus = {
+  online: true,
+  pendingCount: 0,
+  syncing: false,
+  lastError: null,
+  hasSnapshot: false,
 }
 
 export function CalculatorPage({
@@ -57,6 +80,7 @@ export function CalculatorPage({
   const [cooldownUntil, setCooldownUntil] = useState(0)
   const [now, setNow] = useState(() => Date.now())
   const [scanning, setScanning] = useState(false)
+  const [syncStatus, setSyncStatus] = useState<DeskSyncStatus>(EMPTY_SYNC)
 
   const scanTypeRef = useRef(scanType)
   const scanStepRef = useRef(scanStep)
@@ -64,6 +88,7 @@ export function CalculatorPage({
   const cooldownUntilRef = useRef(cooldownUntil)
   const scanningRef = useRef(false)
   const feedbackTimerRef = useRef<number | null>(null)
+  const recordsRef = useRef(records)
 
   useEffect(() => {
     scanTypeRef.current = scanType
@@ -82,6 +107,10 @@ export function CalculatorPage({
   }, [cooldownUntil])
 
   useEffect(() => {
+    recordsRef.current = records
+  }, [records])
+
+  useEffect(() => {
     if (cooldownUntil <= Date.now()) return
     const id = window.setInterval(() => setNow(Date.now()), 200)
     return () => window.clearInterval(id)
@@ -93,6 +122,10 @@ export function CalculatorPage({
         window.clearTimeout(feedbackTimerRef.current)
       }
     }
+  }, [])
+
+  const refreshSyncStatus = useCallback(async () => {
+    setSyncStatus(await getDeskSyncStatus())
   }, [])
 
   const coolingDown = now < cooldownUntil
@@ -120,32 +153,62 @@ export function CalculatorPage({
     []
   )
 
+  const applyOfflineDeskState = useCallback(
+    async (nextRecords: CalculatorRecord[]) => {
+      setRecords(nextRecords)
+      setSummary(await summarizeBorrowsLocal(nextRecords))
+      setCollegeRanks(rankBorrowsByCollegeLocal(nextRecords))
+      setOrganizationRanks(rankBorrowsByOrgLocal(nextRecords, 5))
+      await refreshSyncStatus()
+    },
+    [refreshSyncStatus]
+  )
+
   const refreshDesk = useCallback(async () => {
     const liveRange = { from: today, to: today }
     const rankingRange = weekToDateRange()
     try {
-      const [nextRecords, nextSummary, nextCollege, nextOrg] = await Promise.all(
-        [
+      const [nextRecords, nextSummary, nextCollege, nextOrg] = await withTimeout(
+        Promise.all([
           fetchBorrowScans(liveRange),
           fetchBorrowSummary(),
           fetchBorrowRanking("college", rankingRange),
           fetchBorrowRanking("organization", rankingRange, 5),
-        ]
+        ])
       )
-      setRecords(nextRecords)
+      const merged = await loadMergedBorrows(nextRecords)
+      setRecords(merged)
       setSummary(nextSummary)
       setCollegeRanks(nextCollege)
       setOrganizationRanks(nextOrg)
-    } catch (error) {
-      const detail =
-        error instanceof Error ? error.message : "Failed to load borrowing."
-      showFeedback(detail, "error")
+    } catch {
+      const merged = await loadMergedBorrows(recordsRef.current)
+      await applyOfflineDeskState(merged)
+      return
     }
-  }, [showFeedback, today])
+    await refreshSyncStatus()
+  }, [applyOfflineDeskState, refreshSyncStatus, today])
 
   useEffect(() => {
-    void refreshDesk()
-  }, [refreshDesk])
+    void ensureDeskSnapshot().then(async () => {
+      await drainOutbox()
+      await refreshDesk()
+    })
+    const unsubOnline = subscribeConnectivity(() => {
+      void drainOutbox().then(() => refreshDesk())
+    })
+    const unsubSync = subscribeSyncStatus(() => {
+      void refreshSyncStatus()
+    })
+    const interval = window.setInterval(() => {
+      void drainOutbox().then(() => refreshDesk())
+    }, 30_000)
+    return () => {
+      unsubOnline()
+      unsubSync()
+      window.clearInterval(interval)
+    }
+  }, [refreshDesk, refreshSyncStatus])
 
   const handleScanTypeChange = useCallback(
     (type: BorrowType) => {
@@ -193,7 +256,7 @@ export function CalculatorPage({
       scanningRef.current = true
       setScanning(true)
       try {
-        const result = await createBorrowScan(
+        const result = await recordBorrowScan(
           memberId,
           scanTypeRef.current,
           trimmed
@@ -206,19 +269,27 @@ export function CalculatorPage({
 
         void playScanSuccessSound()
         showFeedback(
-          `Recorded ${result.record.name} · ${result.record.type} · ${result.record.calculatorId}`,
+          result.offline
+            ? `Saved offline · ${result.record.name} · ${result.record.type} · ${result.record.calculatorId}`
+            : `Recorded ${result.record.name} · ${result.record.type} · ${result.record.calculatorId}`,
           "success"
         )
         resetPendingMember()
         setCooldownUntil(Date.now() + SCAN_COOLDOWN_MS)
         setNow(Date.now())
-        await refreshDesk()
+
+        if (result.offline) {
+          const merged = mergeBorrowRecords(recordsRef.current, [result.record])
+          await applyOfflineDeskState(merged)
+        }
+
+        void refreshDesk()
       } finally {
         scanningRef.current = false
         setScanning(false)
       }
     },
-    [refreshDesk, resetPendingMember, showFeedback]
+    [applyOfflineDeskState, refreshDesk, resetPendingMember, showFeedback]
   )
 
   const sessionLabel = useMemo(() => {
@@ -245,6 +316,7 @@ export function CalculatorPage({
               QR camera stays on — choose Borrow or Return, scan the member ID,
               then the calculator ID.
             </p>
+            <DeskSyncChip status={syncStatus} />
           </div>
           <AppHeaderActions
             onChangeMode={onChangeMode}

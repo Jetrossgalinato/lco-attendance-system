@@ -34,6 +34,8 @@ def create_scan(
             raw_member_id=body.member_id,
             raw_calculator_id=body.calculator_id,
             scan_type=body.type,
+            client_id=body.client_id,
+            scanned_at=body.scanned_at,
         )
     except LookupError as exc:
         raise HTTPException(

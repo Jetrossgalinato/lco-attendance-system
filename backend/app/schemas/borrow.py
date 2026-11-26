@@ -19,6 +19,8 @@ class BorrowScanCreateRequest(BaseModel):
     member_id: str = Field(min_length=1)
     calculator_id: str = Field(min_length=1)
     type: BorrowTypeApi
+    client_id: str | None = Field(default=None, max_length=64)
+    scanned_at: datetime | None = None
 
 
 class BorrowRecordOut(BaseModel):
